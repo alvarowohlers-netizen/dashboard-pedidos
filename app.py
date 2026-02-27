@@ -95,8 +95,11 @@ CLASSIFICACAO_STATUS = {
 # ============================================================================
 # FUNÇÃO PARA CONSULTAR API
 # ============================================================================
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)  # Cache de apenas 1 minuto para testar
 def consultar_api_pedidos():
+    """
+    Consulta a API de pedidos em tempo real
+    """
     api_url = "https://api-dw.bseller.com.br/webquery/execute/ZBIQ0104"
     token = "5A9D7B5EAC2E7478E05324F3A8C0D448"
     
@@ -115,28 +118,68 @@ def consultar_api_pedidos():
     }
     
     try:
-        with st.spinner('📡 Conectando à API...'):
-            response = requests.post(api_url, json=payload, headers=headers, timeout=30)
-        
+        response = requests.post(api_url, json=payload, headers=headers, timeout=30)
         if response.status_code == 200:
             data = response.json()
             if data and len(data) > 0:
-                return {"sucesso": True, "dados": data}
+                return {"sucesso": True, "dados": data, "registros": len(data)}
+            else:
+                return {"sucesso": False, "dados": None, "erro": "Sem dados"}
+        else:
+            return {"sucesso": False, "dados": None, "erro": f"Erro {response.status_code}"}
     except Exception as e:
-        st.error(f"Erro: {e}")
+        return {"sucesso": False, "dados": None, "erro": str(e)}
+
+# ============================================================================
+# INICIALIZAR SESSION STATE PARA CONTROLE DE ATUALIZAÇÃO
+# ============================================================================
+if 'ultima_atualizacao' not in st.session_state:
+    st.session_state.ultima_atualizacao = datetime.now()
+if 'contador' not in st.session_state:
+    st.session_state.contador = 0
+
+# ============================================================================
+# SIDEBAR COM INFORMAÇÕES DE ATUALIZAÇÃO
+# ============================================================================
+with st.sidebar:
+    st.image("https://img.icons8.com/color/96/000000/bar-chart.png", width=80)
+    st.title("⚙️ Controle")
     
-    return {"sucesso": False, "dados": None}
+    # Botão para atualizar manualmente
+    if st.button("🔄 ATUALIZAR AGORA", type="primary", use_container_width=True):
+        st.cache_data.clear()
+        st.session_state.ultima_atualizacao = datetime.now()
+        st.rerun()
+    
+    # Mostrar contador regressivo
+    tempo_passado = (datetime.now() - st.session_state.ultima_atualizacao).seconds
+    segundos_restantes = max(0, 60 - tempo_passado)  # 60 segundos = 1 minuto
+    
+    st.markdown(f"### ⏱️ Próxima atualização:")
+    st.markdown(f"## **{segundos_restantes} segundos**")
+    st.progress(min(1.0, tempo_passado / 60))
+    
+    st.markdown("---")
+    st.markdown(f"🕒 Última: {st.session_state.ultima_atualizacao.strftime('%H:%M:%S')}")
+    st.markdown(f"🔄 Ciclo: {st.session_state.contador}")
 
 # ============================================================================
 # CONSULTAR API
 # ============================================================================
 resultado = consultar_api_pedidos()
 
+# Verificar se passou 1 minuto para atualizar
+if tempo_passado >= 60:  # 60 segundos = 1 minuto
+    st.session_state.ultima_atualizacao = datetime.now()
+    st.session_state.contador += 1
+    st.cache_data.clear()
+    st.rerun()
+
 if resultado["sucesso"] and resultado["dados"]:
     df = pd.DataFrame(resultado["dados"])
     
     # Status da conexão
-    st.success(f"✅ API conectada! {len(df):,} registros encontrados")
+    st.sidebar.success(f"✅ API Online - {resultado['registros']} registros")
     
     # Usar a coluna STATUS (que já existe) em vez de TIPO_STATUS
     coluna_status_correta = 'STATUS'  # A coluna STATUS já existe nos dados
@@ -378,28 +421,26 @@ if resultado["sucesso"] and resultado["dados"]:
     
 else:
     st.error("❌ Erro ao conectar com a API")
-    st.info("🔄 Tentando novamente em 5 minutos...")
+    st.info(f"Detalhes: {resultado.get('erro', 'Erro desconhecido')}")
+    st.info("🔄 Tentando novamente em 1 minuto...")
 
 # ============================================================================
-# RODAPÉ
+# RODAPÉ COM HORÁRIO BRASILEIRO
 # ============================================================================
 st.markdown("---")
 col1, col2, col3 = st.columns(3)
+
+# Ajustar para horário brasileiro (UTC-3)
+from datetime import timezone, timedelta
+fuso_br = timezone(timedelta(hours=-3))
+hora_br = datetime.now(timezone.utc).astimezone(fuso_br)
+
 with col1:
-    st.markdown(f"🕒 Atualizado: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+    st.markdown(f"🕒 Atualizado: {hora_br.strftime('%d/%m/%Y %H:%M:%S')}")
 with col2:
-    st.markdown("🔄 Auto-refresh a cada 5 minutos")
+    st.markdown("🔄 Auto-refresh a cada 1 minuto")
 with col3:
     if resultado["sucesso"]:
         st.markdown("✅ API: Online")
     else:
-        st.markdown("⚠️ API: Offline (modo exemplo)")
-
-# Auto-refresh
-st.components.v1.html("""
-<script>
-    setTimeout(function() {
-        window.location.reload();
-    }, 300000);
-</script>
-""", height=0)
+        st.markdown("⚠️ API: Offline")
