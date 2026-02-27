@@ -11,16 +11,15 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # ============================================================================
-# CONFIGURAÇÃO DA PÁGINA - DEIXAR MAIS BONITA
+# CONFIGURAÇÃO DA PÁGINA
 # ============================================================================
 st.set_page_config(
     page_title="📊 Dashboard de Pedidos",
     page_icon="📦",
-    layout="wide",
-    initial_sidebar_state="collapsed"
+    layout="wide"
 )
 
-# CSS personalizado para deixar mais bonito
+# CSS personalizado
 st.markdown("""
 <style>
     .main-header {
@@ -50,18 +49,18 @@ st.markdown("""
         font-size: 1rem;
         color: #666;
     }
-    .section-header {
-        background: #f8f9fa;
+    .refresh-box {
+        background: #f0f2f6;
         padding: 1rem;
-        border-radius: 5px;
-        margin: 1rem 0;
-        border-left: 5px solid #4ECDC4;
+        border-radius: 10px;
+        text-align: center;
+        border: 2px solid #4ECDC4;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# TÍTULO BONITO
+# TÍTULO
 # ============================================================================
 st.markdown('<h1 class="main-header">📊 DASHBOARD DE PEDIDOS ABERTOS</h1>', unsafe_allow_html=True)
 
@@ -95,11 +94,8 @@ CLASSIFICACAO_STATUS = {
 # ============================================================================
 # FUNÇÃO PARA CONSULTAR API
 # ============================================================================
-@st.cache_data(ttl=60)  # Cache de apenas 1 minuto para testar
+@st.cache_data(ttl=0)  # SEM CACHE! Sempre busca novo
 def consultar_api_pedidos():
-    """
-    Consulta a API de pedidos em tempo real
-    """
     api_url = "https://api-dw.bseller.com.br/webquery/execute/ZBIQ0104"
     token = "5A9D7B5EAC2E7478E05324F3A8C0D448"
     
@@ -123,68 +119,86 @@ def consultar_api_pedidos():
             data = response.json()
             if data and len(data) > 0:
                 return {"sucesso": True, "dados": data, "registros": len(data)}
-            else:
-                return {"sucesso": False, "dados": None, "erro": "Sem dados"}
-        else:
-            return {"sucesso": False, "dados": None, "erro": f"Erro {response.status_code}"}
-    except Exception as e:
-        return {"sucesso": False, "dados": None, "erro": str(e)}
+    except:
+        pass
+    
+    return {"sucesso": False, "dados": None}
 
 # ============================================================================
-# INICIALIZAR SESSION STATE PARA CONTROLE DE ATUALIZAÇÃO
+# CONTROLE DE ATUALIZAÇÃO
 # ============================================================================
-if 'ultima_atualizacao' not in st.session_state:
-    st.session_state.ultima_atualizacao = datetime.now()
+
+# Inicializar o contador
 if 'contador' not in st.session_state:
     st.session_state.contador = 0
 
-# ============================================================================
-# SIDEBAR COM INFORMAÇÕES DE ATUALIZAÇÃO
-# ============================================================================
-with st.sidebar:
-    st.image("https://img.icons8.com/color/96/000000/bar-chart.png", width=80)
-    st.title("⚙️ Controle")
-    
-    # Botão para atualizar manualmente
-    if st.button("🔄 ATUALIZAR AGORA", type="primary", use_container_width=True):
+# Mostrar caixa de atualização
+st.markdown("### ⏰ CONTROLE DE ATUALIZAÇÃO AUTOMÁTICA")
+
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    # Botão para atualizar manual
+    if st.button("🔄 ATUALIZAR MANUAL", type="primary"):
         st.cache_data.clear()
-        st.session_state.ultima_atualizacao = datetime.now()
+        st.session_state.contador += 1
         st.rerun()
+
+with col2:
+    # Mostrar contador de atualizações
+    st.markdown(f"<div class='refresh-box'><h3>🔄 {st.session_state.contador}</h3><p>Atualizações</p></div>", unsafe_allow_html=True)
+
+with col3:
+    # Timer visível
+    timer_placeholder = st.empty()
+
+with col4:
+    # Status da API
+    api_status = st.empty()
+
+# ============================================================================
+# TIMER COM JAVASCRIPT PURO (FORÇA RECARREGAMENTO)
+# ============================================================================
+
+# Timer de 60 segundos (1 minuto)
+st.components.v1.html("""
+<div id="timer" style="text-align: center; font-size: 24px; font-weight: bold; padding: 10px; background: #4ECDC4; color: white; border-radius: 10px; margin: 10px 0;">
+    ⏱️ Atualizando em: <span id="seconds">60</span> segundos
+</div>
+
+<script>
+    // Contador regressivo
+    let seconds = 60;
+    const timerElement = document.getElementById('seconds');
     
-    # Mostrar contador regressivo
-    tempo_passado = (datetime.now() - st.session_state.ultima_atualizacao).seconds
-    segundos_restantes = max(0, 60 - tempo_passado)  # 60 segundos = 1 minuto
+    function updateTimer() {
+        seconds--;
+        if (seconds <= 0) {
+            seconds = 60;
+            // Força o recarregamento da página
+            window.location.reload();
+        }
+        timerElement.textContent = seconds;
+    }
     
-    st.markdown(f"### ⏱️ Próxima atualização:")
-    st.markdown(f"## **{segundos_restantes} segundos**")
-    st.progress(min(1.0, tempo_passado / 60))
-    
-    st.markdown("---")
-    st.markdown(f"🕒 Última: {st.session_state.ultima_atualizacao.strftime('%H:%M:%S')}")
-    st.markdown(f"🔄 Ciclo: {st.session_state.contador}")
+    // Atualiza a cada 1 segundo
+    setInterval(updateTimer, 1000);
+</script>
+
+<!-- META refresh como fallback -->
+<meta http-equiv="refresh" content="65">
+""", height=100)
 
 # ============================================================================
 # CONSULTAR API
 # ============================================================================
 resultado = consultar_api_pedidos()
 
-# Verificar se passou 1 minuto para atualizar
-if tempo_passado >= 60:  # 60 segundos = 1 minuto
-    st.session_state.ultima_atualizacao = datetime.now()
-    st.session_state.contador += 1
-    st.cache_data.clear()
-    st.rerun()
-
 if resultado["sucesso"] and resultado["dados"]:
+    api_status.success("✅ API Online")
     df = pd.DataFrame(resultado["dados"])
     
-    # Status da conexão
-    st.sidebar.success(f"✅ API Online - {resultado['registros']} registros")
-    
-    # Usar a coluna STATUS (que já existe) em vez de TIPO_STATUS
-    coluna_status_correta = 'STATUS'  # A coluna STATUS já existe nos dados
-    
-    # Mapeamento correto das colunas
+    # Mapeamento das colunas
     df_renamed = df.rename(columns={
         'TIPO_ITEM': 'TIPO_ITEM',
         'TIPO_LIMITE': 'TIPO_LIMITE',
@@ -192,24 +206,20 @@ if resultado["sucesso"] and resultado["dados"]:
         'QT_PECAS': 'QT_PECAS'
     })
     
-    # Garantir que temos a coluna STATUS
-    df_renamed['STATUS'] = df['STATUS']  # Usar a coluna STATUS original
-    
-    # Converter para numérico
+    df_renamed['STATUS'] = df['STATUS']
     df_renamed['COUNT_ENTREGA'] = pd.to_numeric(df_renamed['COUNT_ENTREGA'], errors='coerce').fillna(1)
     df_renamed['QT_PECAS'] = pd.to_numeric(df_renamed['QT_PECAS'], errors='coerce').fillna(0)
     
-    # Aplicar classificação
     df_renamed['TIPO_PEDIDO'] = df_renamed['STATUS'].map(CLASSIFICACAO_STATUS)
     df_renamed['TIPO_PEDIDO'] = df_renamed['TIPO_PEDIDO'].fillna('OUTROS')
     
-    # Filtrar abertos
     df_abertos = df_renamed[df_renamed['TIPO_PEDIDO'] == 'ABERTOS'].copy()
     
     # ============================================================================
-    # MÉTRICAS EM CARDS BONITOS
+    # MÉTRICAS
     # ============================================================================
     st.markdown("---")
+    st.markdown("### 📈 MÉTRICAS ATUAIS")
     
     col1, col2, col3, col4 = st.columns(4)
     
@@ -243,204 +253,95 @@ if resultado["sucesso"] and resultado["dados"]:
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-value">{df_abertos['STATUS'].nunique()}</div>
-            <div class="metric-label">🔄 Status Diferentes</div>
+            <div class="metric-label">🔄 Status</div>
         </div>
         """, unsafe_allow_html=True)
     
-    st.markdown("---")
-    
     # ============================================================================
-    # GRÁFICOS BONITOS
+    # GRÁFICOS
     # ============================================================================
     if len(df_abertos) > 0:
-        tab1, tab2, tab3 = st.tabs(["📊 Visão Geral", "📈 Análise Detalhada", "📋 Dados Completos"])
+        st.markdown("---")
+        st.markdown("### 📊 ANÁLISE GRÁFICA")
         
-        with tab1:
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown('<p class="section-header">📦 Pedidos por Tipo de Limite</p>', unsafe_allow_html=True)
-                
-                # Agrupar dados
-                pivot = pd.crosstab(
-                    df_abertos['TIPO_LIMITE'],
-                    df_abertos['TIPO_ITEM'],
-                    values=df_abertos['COUNT_ENTREGA'],
-                    aggfunc='sum'
-                ).fillna(0)
-                
-                # Gráfico bonito
-                fig, ax = plt.subplots(figsize=(10, 6))
-                cores = sns.color_palette("husl", len(pivot.columns))
-                pivot.plot(kind='bar', stacked=True, ax=ax, color=cores)
-                
-                ax.set_title('Distribuição de Pedidos por Tipo', fontsize=14, fontweight='bold', pad=20)
-                ax.set_xlabel('Tipo de Limite', fontsize=12)
-                ax.set_ylabel('Quantidade de Pedidos', fontsize=12)
-                ax.legend(title='Tipo Item', bbox_to_anchor=(1.05, 1))
-                ax.grid(True, alpha=0.3, axis='y')
-                plt.xticks(rotation=45)
-                plt.tight_layout()
-                
-                st.pyplot(fig)
-                
-                # Total
-                st.info(f"📊 Total de pedidos: **{pivot.sum().sum():,.0f}**")
-            
-            with col2:
-                st.markdown('<p class="section-header">🧩 Peças por Tipo de Limite</p>', unsafe_allow_html=True)
-                
-                # Agrupar dados
-                pivot2 = pd.crosstab(
-                    df_abertos['TIPO_LIMITE'],
-                    df_abertos['TIPO_ITEM'],
-                    values=df_abertos['QT_PECAS'],
-                    aggfunc='sum'
-                ).fillna(0)
-                
-                # Gráfico bonito
-                fig, ax = plt.subplots(figsize=(10, 6))
-                pivot2.plot(kind='bar', stacked=True, ax=ax, color=cores)
-                
-                ax.set_title('Distribuição de Peças por Tipo', fontsize=14, fontweight='bold', pad=20)
-                ax.set_xlabel('Tipo de Limite', fontsize=12)
-                ax.set_ylabel('Quantidade de Peças', fontsize=12)
-                ax.legend(title='Tipo Item', bbox_to_anchor=(1.05, 1))
-                ax.grid(True, alpha=0.3, axis='y')
-                plt.xticks(rotation=45)
-                plt.tight_layout()
-                
-                st.pyplot(fig)
-                
-                # Total
-                st.info(f"📦 Total de peças: **{pivot2.sum().sum():,.0f}**")
+        col1, col2 = st.columns(2)
         
-        with tab2:
-            col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("📦 Pedidos por Tipo de Limite")
+            pivot = pd.crosstab(
+                df_abertos['TIPO_LIMITE'],
+                df_abertos['TIPO_ITEM'],
+                values=df_abertos['COUNT_ENTREGA'],
+                aggfunc='sum'
+            ).fillna(0)
             
-            with col1:
-                st.markdown('<p class="section-header">🏆 Top 10 Status</p>', unsafe_allow_html=True)
-                
-                status_count = df_abertos['STATUS'].value_counts().head(10)
-                
-                fig, ax = plt.subplots(figsize=(10, 6))
-                bars = ax.barh(range(len(status_count)), status_count.values, color='#4ECDC4')
-                ax.set_yticks(range(len(status_count)))
-                ax.set_yticklabels(status_count.index)
-                ax.set_xlabel('Quantidade de Pedidos')
-                ax.set_title('Status mais frequentes', fontsize=14, fontweight='bold')
-                
-                # Adicionar valores nas barras
-                for i, (bar, val) in enumerate(zip(bars, status_count.values)):
-                    ax.text(val, i, f' {val}', va='center', fontweight='bold')
-                
-                plt.tight_layout()
-                st.pyplot(fig)
-            
-            with col2:
-                st.markdown('<p class="section-header">🥧 Distribuição por Tipo Item</p>', unsafe_allow_html=True)
-                
-                item_count = df_abertos['TIPO_ITEM'].value_counts()
-                
-                fig, ax = plt.subplots(figsize=(8, 8))
-                cores_pie = sns.color_palette("Set3", len(item_count))
-                wedges, texts, autotexts = ax.pie(
-                    item_count.values, 
-                    labels=item_count.index, 
-                    autopct='%1.1f%%',
-                    colors=cores_pie,
-                    startangle=90,
-                    textprops={'fontsize': 12, 'fontweight': 'bold'}
-                )
-                ax.set_title('Proporção por Tipo de Item', fontsize=14, fontweight='bold', pad=20)
-                plt.tight_layout()
-                st.pyplot(fig)
+            fig, ax = plt.subplots(figsize=(10, 6))
+            cores = sns.color_palette("husl", len(pivot.columns))
+            pivot.plot(kind='bar', stacked=True, ax=ax, color=cores)
+            ax.set_xlabel('Tipo de Limite')
+            ax.set_ylabel('Quantidade de Pedidos')
+            plt.xticks(rotation=45)
+            st.pyplot(fig)
         
-        with tab3:
-            st.markdown('<p class="section-header">📋 Dados Detalhados</p>', unsafe_allow_html=True)
+        with col2:
+            st.subheader("🧩 Peças por Tipo de Limite")
+            pivot2 = pd.crosstab(
+                df_abertos['TIPO_LIMITE'],
+                df_abertos['TIPO_ITEM'],
+                values=df_abertos['QT_PECAS'],
+                aggfunc='sum'
+            ).fillna(0)
             
-            # Filtros
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                tipos_limite = ['Todos'] + sorted(df_abertos['TIPO_LIMITE'].unique().tolist())
-                filtro_limite = st.selectbox("📌 Tipo Limite", tipos_limite)
-            
-            with col2:
-                tipos_item = ['Todos'] + sorted(df_abertos['TIPO_ITEM'].unique().tolist())
-                filtro_item = st.selectbox("📦 Tipo Item", tipos_item)
-            
-            with col3:
-                status_opcoes = ['Todos'] + sorted(df_abertos['STATUS'].unique().tolist())
-                filtro_status = st.selectbox("🔄 Status", status_opcoes)
-            
-            # Aplicar filtros
-            df_filtrado = df_abertos.copy()
-            if filtro_limite != 'Todos':
-                df_filtrado = df_filtrado[df_filtrado['TIPO_LIMITE'] == filtro_limite]
-            if filtro_item != 'Todos':
-                df_filtrado = df_filtrado[df_filtrado['TIPO_ITEM'] == filtro_item]
-            if filtro_status != 'Todos':
-                df_filtrado = df_filtrado[df_filtrado['STATUS'] == filtro_status]
-            
-            # Mostrar tabela
-            st.dataframe(
-                df_filtrado,
-                use_container_width=True,
-                height=500,
-                column_config={
-                    "STATUS": "Status",
-                    "TIPO_ITEM": "Tipo Item",
-                    "TIPO_LIMITE": "Tipo Limite",
-                    "COUNT_ENTREGA": "Qtd Pedidos",
-                    "QT_PECAS": "Qtd Peças"
-                }
-            )
-            
-            # Estatísticas
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("📊 Registros", len(df_filtrado))
-            with col2:
-                st.metric("🧩 Total Peças", df_filtrado['QT_PECAS'].sum())
-            with col3:
-                st.metric("📈 Média", f"{df_filtrado['QT_PECAS'].mean():.1f}")
-            
-            # Download
-            csv = df_filtrado.to_csv(index=False)
-            st.download_button(
-                label="📥 Download CSV",
-                data=csv,
-                file_name=f"pedidos_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
-    
-    else:
-        st.warning("⚠️ Nenhum pedido aberto encontrado")
+            fig, ax = plt.subplots(figsize=(10, 6))
+            pivot2.plot(kind='bar', stacked=True, ax=ax, color=cores)
+            ax.set_xlabel('Tipo de Limite')
+            ax.set_ylabel('Quantidade de Peças')
+            plt.xticks(rotation=45)
+            st.pyplot(fig)
+        
+        # ============================================================================
+        # TABELA
+        # ============================================================================
+        st.markdown("---")
+        st.markdown("### 📋 DADOS DETALHADOS")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            tipos_limite = ['Todos'] + sorted(df_abertos['TIPO_LIMITE'].unique().tolist())
+            filtro_limite = st.selectbox("Filtrar por Tipo Limite", tipos_limite)
+        with col2:
+            tipos_item = ['Todos'] + sorted(df_abertos['TIPO_ITEM'].unique().tolist())
+            filtro_item = st.selectbox("Filtrar por Tipo Item", tipos_item)
+        with col3:
+            status_opcoes = ['Todos'] + sorted(df_abertos['STATUS'].unique().tolist())
+            filtro_status = st.selectbox("Filtrar por Status", status_opcoes)
+        
+        df_filtrado = df_abertos.copy()
+        if filtro_limite != 'Todos':
+            df_filtrado = df_filtrado[df_filtrado['TIPO_LIMITE'] == filtro_limite]
+        if filtro_item != 'Todos':
+            df_filtrado = df_filtrado[df_filtrado['TIPO_ITEM'] == filtro_item]
+        if filtro_status != 'Todos':
+            df_filtrado = df_filtrado[df_filtrado['STATUS'] == filtro_status]
+        
+        st.dataframe(df_filtrado, use_container_width=True, height=400)
+        
+        # Download
+        csv = df_filtrado.to_csv(index=False)
+        st.download_button(
+            label="📥 Download CSV",
+            data=csv,
+            file_name=f"pedidos_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            mime="text/csv"
+        )
     
 else:
     st.error("❌ Erro ao conectar com a API")
-    st.info(f"Detalhes: {resultado.get('erro', 'Erro desconhecido')}")
-    st.info("🔄 Tentando novamente em 1 minuto...")
+    api_status.error("❌ API Offline")
 
 # ============================================================================
-# RODAPÉ COM HORÁRIO BRASILEIRO
+# RODAPÉ
 # ============================================================================
 st.markdown("---")
-col1, col2, col3 = st.columns(3)
-
-# Ajustar para horário brasileiro (UTC-3)
-from datetime import timezone, timedelta
-fuso_br = timezone(timedelta(hours=-3))
-hora_br = datetime.now(timezone.utc).astimezone(fuso_br)
-
-with col1:
-    st.markdown(f"🕒 Atualizado: {hora_br.strftime('%d/%m/%Y %H:%M:%S')}")
-with col2:
-    st.markdown("🔄 Auto-refresh a cada 1 minuto")
-with col3:
-    if resultado["sucesso"]:
-        st.markdown("✅ API: Online")
-    else:
-        st.markdown("⚠️ API: Offline")
+st.markdown(f"🕒 Última atualização: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+st.markdown("🔄 Atualização automática a cada 1 minuto")
