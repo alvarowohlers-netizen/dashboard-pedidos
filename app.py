@@ -94,7 +94,6 @@ CLASSIFICACAO_STATUS = {
 # ============================================================================
 # FUNÇÃO PARA CONSULTAR API
 # ============================================================================
-@st.cache_data(ttl=0)  # SEM CACHE! Sempre busca novo
 def consultar_api_pedidos():
     api_url = "https://api-dw.bseller.com.br/webquery/execute/ZBIQ0104"
     token = "5A9D7B5EAC2E7478E05324F3A8C0D448"
@@ -125,77 +124,95 @@ def consultar_api_pedidos():
     return {"sucesso": False, "dados": None}
 
 # ============================================================================
-# CONTROLE DE ATUALIZAÇÃO
+# CONTROLE DE ATUALIZAÇÃO - VERSÃO COM TIMER NO STREAMLIT
 # ============================================================================
 
-# Inicializar o contador
+# Inicializar o estado
+if 'ultima_atualizacao' not in st.session_state:
+    st.session_state.ultima_atualizacao = datetime.now()
 if 'contador' not in st.session_state:
     st.session_state.contador = 0
 
-# Mostrar caixa de atualização
+# Calcular tempo restante
+tempo_passado = (datetime.now() - st.session_state.ultima_atualizacao).seconds
+tempo_restante = max(0, 30 - tempo_passado)  # 30 segundos para teste
+
+# Mostrar painel de controle
 st.markdown("### ⏰ CONTROLE DE ATUALIZAÇÃO AUTOMÁTICA")
 
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    # Botão para atualizar manual
     if st.button("🔄 ATUALIZAR MANUAL", type="primary"):
-        st.cache_data.clear()
+        st.session_state.ultima_atualizacao = datetime.now()
         st.session_state.contador += 1
         st.rerun()
 
 with col2:
-    # Mostrar contador de atualizações
-    st.markdown(f"<div class='refresh-box'><h3>🔄 {st.session_state.contador}</h3><p>Atualizações</p></div>", unsafe_allow_html=True)
+    st.markdown(f"""
+    <div class='refresh-box'>
+        <h3>🔄 {st.session_state.contador}</h3>
+        <p>Atualizações</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 with col3:
-    # Timer visível
-    timer_placeholder = st.empty()
+    st.markdown(f"""
+    <div class='refresh-box'>
+        <h3>⏱️ {tempo_restante}s</h3>
+        <p>Próxima atualização</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 with col4:
-    # Status da API
-    api_status = st.empty()
+    # Verificar se API está online
+    resultado = consultar_api_pedidos()
+    if resultado["sucesso"]:
+        st.markdown("""
+        <div class='refresh-box' style='border-color: #00FF00;'>
+            <h3>✅ Online</h3>
+            <p>API Status</p>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div class='refresh-box' style='border-color: #FF0000;'>
+            <h3>❌ Offline</h3>
+            <p>API Status</p>
+        </div>
+        """, unsafe_allow_html=True)
 
 # ============================================================================
-# TIMER COM JAVASCRIPT PURO (FORÇA RECARREGAMENTO)
+# AUTO-REFRESH COM MÚLTIPLOS MÉTODOS
 # ============================================================================
 
-# Timer de 60 segundos (1 minuto)
+# Método 1: JavaScript com reload forçado
+if tempo_restante <= 0:
+    st.session_state.ultima_atualizacao = datetime.now()
+    st.session_state.contador += 1
+    st.rerun()  # Força refresh no Streamlit
+
+# Método 2: Meta refresh HTML (backup)
+st.markdown(f"""
+<meta http-equiv="refresh" content="30">
+""", unsafe_allow_html=True)
+
+# Método 3: JavaScript com reload da página
 st.components.v1.html("""
-<div id="timer" style="text-align: center; font-size: 24px; font-weight: bold; padding: 10px; background: #4ECDC4; color: white; border-radius: 10px; margin: 10px 0;">
-    ⏱️ Atualizando em: <span id="seconds">60</span> segundos
-</div>
-
 <script>
-    // Contador regressivo
-    let seconds = 60;
-    const timerElement = document.getElementById('seconds');
-    
-    function updateTimer() {
-        seconds--;
-        if (seconds <= 0) {
-            seconds = 60;
-            // Força o recarregamento da página
-            window.location.reload();
-        }
-        timerElement.textContent = seconds;
-    }
-    
-    // Atualiza a cada 1 segundo
-    setInterval(updateTimer, 1000);
+    // Força reload da página a cada 30 segundos
+    setTimeout(function() {
+        window.location.reload(true);  // true = força reload do servidor
+    }, 30000);  // 30 segundos
 </script>
-
-<!-- META refresh como fallback -->
-<meta http-equiv="refresh" content="65">
-""", height=100)
+""", height=0)
 
 # ============================================================================
-# CONSULTAR API
+# PROCESSAR DADOS
 # ============================================================================
 resultado = consultar_api_pedidos()
 
 if resultado["sucesso"] and resultado["dados"]:
-    api_status.success("✅ API Online")
     df = pd.DataFrame(resultado["dados"])
     
     # Mapeamento das colunas
@@ -337,11 +354,15 @@ if resultado["sucesso"] and resultado["dados"]:
     
 else:
     st.error("❌ Erro ao conectar com a API")
-    api_status.error("❌ API Offline")
 
 # ============================================================================
 # RODAPÉ
 # ============================================================================
 st.markdown("---")
-st.markdown(f"🕒 Última atualização: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
-st.markdown("🔄 Atualização automática a cada 1 minuto")
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.markdown(f"🕒 Última: {st.session_state.ultima_atualizacao.strftime('%H:%M:%S')}")
+with col2:
+    st.markdown(f"⏱️ Próxima em: {tempo_restante}s")
+with col3:
+    st.markdown("🔄 Auto-refresh a cada 30s")
