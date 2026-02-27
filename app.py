@@ -7,6 +7,8 @@ import requests
 import json
 from datetime import datetime, timedelta
 import time
+import platform
+import random
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -55,6 +57,13 @@ st.markdown("""
         border-radius: 10px;
         text-align: center;
         border: 2px solid #4ECDC4;
+    }
+    .diagnostico-box {
+        background: #e8f4fd;
+        padding: 10px;
+        border-radius: 5px;
+        margin: 5px 0;
+        font-family: monospace;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -118,13 +127,13 @@ def consultar_api_pedidos():
             data = response.json()
             if data and len(data) > 0:
                 return {"sucesso": True, "dados": data, "registros": len(data)}
-    except:
-        pass
+    except Exception as e:
+        return {"sucesso": False, "dados": None, "erro": str(e)}
     
     return {"sucesso": False, "dados": None}
 
 # ============================================================================
-# CONTROLE DE ATUALIZAÇÃO - VERSÃO COM TIMER NO STREAMLIT
+# CONTROLE DE ATUALIZAÇÃO
 # ============================================================================
 
 # Inicializar o estado
@@ -132,10 +141,12 @@ if 'ultima_atualizacao' not in st.session_state:
     st.session_state.ultima_atualizacao = datetime.now()
 if 'contador' not in st.session_state:
     st.session_state.contador = 0
+if 'refresh_forcado' not in st.session_state:
+    st.session_state.refresh_forcado = 0
 
 # Calcular tempo restante
 tempo_passado = (datetime.now() - st.session_state.ultima_atualizacao).seconds
-tempo_restante = max(0, 30 - tempo_passado)  # 30 segundos para teste
+tempo_restante = max(0, 30 - tempo_passado)  # 30 segundos
 
 # Mostrar painel de controle
 st.markdown("### ⏰ CONTROLE DE ATUALIZAÇÃO AUTOMÁTICA")
@@ -146,6 +157,7 @@ with col1:
     if st.button("🔄 ATUALIZAR MANUAL", type="primary"):
         st.session_state.ultima_atualizacao = datetime.now()
         st.session_state.contador += 1
+        st.cache_data.clear()
         st.rerun()
 
 with col2:
@@ -157,62 +169,110 @@ with col2:
     """, unsafe_allow_html=True)
 
 with col3:
+    cor = "#4ECDC4" if tempo_restante > 0 else "#FF6B6B"
     st.markdown(f"""
-    <div class='refresh-box'>
+    <div class='refresh-box' style='border-color: {cor};'>
         <h3>⏱️ {tempo_restante}s</h3>
         <p>Próxima atualização</p>
     </div>
     """, unsafe_allow_html=True)
 
-with col4:
-    # Verificar se API está online
+# ============================================================================
+# FORÇAR REFRESH NO PC
+# ============================================================================
+
+# Método 1: Streamlit rerun
+if tempo_restante <= 0:
+    st.session_state.ultima_atualizacao = datetime.now()
+    st.session_state.contador += 1
+    st.session_state.refresh_forcado += 1
+    st.cache_data.clear()
+    st.rerun()
+
+# Método 2: Múltiplas formas de refresh via HTML/JS
+st.components.v1.html(f"""
+<script>
+    // Forçar reload da página com cache busting
+    function forcarRefresh() {{
+        console.log('🔄 Forçando refresh...');
+        window.location.reload(true);
+    }}
+    
+    // Timer principal
+    setTimeout(forcarRefresh, 30000);  // 30 segundos
+    
+    // Backup timer (caso o primeiro falhe)
+    setTimeout(forcarRefresh, 31000);  // 31 segundos
+    
+    // Meta refresh como último recurso
+    document.write('<meta http-equiv="refresh" content="32">');
+    
+    // Mostrar status na tela
+    var statusDiv = document.createElement('div');
+    statusDiv.id = 'refresh-status';
+    statusDiv.style.cssText = 'position: fixed; bottom: 10px; right: 10px; background: #333; color: white; padding: 5px 10px; border-radius: 5px; font-size: 12px; z-index: 9999;';
+    statusDiv.innerHTML = '🔄 Auto-refresh ativo (30s)';
+    document.body.appendChild(statusDiv);
+    
+    // Atualizar status a cada segundo
+    var segundos = 30;
+    setInterval(function() {{
+        segundos--;
+        if (segundos <= 0) segundos = 30;
+        document.getElementById('refresh-status').innerHTML = '🔄 Refresh em ' + segundos + 's';
+    }}, 1000);
+</script>
+
+<!-- Cache busting via parametro na URL -->
+<meta http-equiv="pragma" content="no-cache">
+<meta http-equiv="cache-control" content="no-cache, no-store, must-revalidate">
+""", height=0)
+
+# ============================================================================
+# DIAGNÓSTICO PARA PC
+# ============================================================================
+with st.expander("🔧 DIAGNÓSTICO DO SISTEMA (clique para ver)"):
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 💻 Informações do PC")
+        st.markdown(f"<div class='diagnostico-box'>Sistema: {platform.system()} {platform.release()}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='diagnostico-box'>Versão: {platform.version()}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='diagnostico-box'>Máquina: {platform.machine()}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='diagnostico-box'>Processador: {platform.processor()}</div>", unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("### ⏱️ Status do Refresh")
+        st.markdown(f"<div class='diagnostico-box'>Última atualização: {st.session_state.ultima_atualizacao.strftime('%H:%M:%S')}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='diagnostico-box'>Tempo passado: {tempo_passado}s</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='diagnostico-box'>Tempo restante: {tempo_restante}s</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='diagnostico-box'>Refresh forçados: {st.session_state.refresh_forcado}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='diagnostico-box'>Total atualizações: {st.session_state.contador}</div>", unsafe_allow_html=True)
+    
+    st.markdown("### 🌐 Teste de Conexão")
+    if st.button("📡 Testar conexão com API"):
+        with st.spinner("Testando..."):
+            teste = consultar_api_pedidos()
+            if teste["sucesso"]:
+                st.success(f"✅ API OK! {teste['registros']} registros")
+            else:
+                st.error(f"❌ API erro: {teste.get('erro', 'Desconhecido')}")
+
+# ============================================================================
+# CONSULTAR API
+# ============================================================================
+with st.spinner("📡 Buscando dados..."):
     resultado = consultar_api_pedidos()
-    if resultado["sucesso"]:
+
+if resultado["sucesso"] and resultado["dados"]:
+    with col4:
         st.markdown("""
         <div class='refresh-box' style='border-color: #00FF00;'>
             <h3>✅ Online</h3>
             <p>API Status</p>
         </div>
         """, unsafe_allow_html=True)
-    else:
-        st.markdown("""
-        <div class='refresh-box' style='border-color: #FF0000;'>
-            <h3>❌ Offline</h3>
-            <p>API Status</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-# ============================================================================
-# AUTO-REFRESH COM MÚLTIPLOS MÉTODOS
-# ============================================================================
-
-# Método 1: JavaScript com reload forçado
-if tempo_restante <= 0:
-    st.session_state.ultima_atualizacao = datetime.now()
-    st.session_state.contador += 1
-    st.rerun()  # Força refresh no Streamlit
-
-# Método 2: Meta refresh HTML (backup)
-st.markdown(f"""
-<meta http-equiv="refresh" content="30">
-""", unsafe_allow_html=True)
-
-# Método 3: JavaScript com reload da página
-st.components.v1.html("""
-<script>
-    // Força reload da página a cada 30 segundos
-    setTimeout(function() {
-        window.location.reload(true);  // true = força reload do servidor
-    }, 30000);  // 30 segundos
-</script>
-""", height=0)
-
-# ============================================================================
-# PROCESSAR DADOS
-# ============================================================================
-resultado = consultar_api_pedidos()
-
-if resultado["sucesso"] and resultado["dados"]:
+    
     df = pd.DataFrame(resultado["dados"])
     
     # Mapeamento das colunas
@@ -349,11 +409,21 @@ if resultado["sucesso"] and resultado["dados"]:
             label="📥 Download CSV",
             data=csv,
             file_name=f"pedidos_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-            mime="text/csv"
+            mime="text/csv",
+            use_container_width=True
         )
     
 else:
+    with col4:
+        st.markdown("""
+        <div class='refresh-box' style='border-color: #FF0000;'>
+            <h3>❌ Offline</h3>
+            <p>API Status</p>
+        </div>
+        """, unsafe_allow_html=True)
     st.error("❌ Erro ao conectar com a API")
+    if resultado.get('erro'):
+        st.info(f"Detalhes: {resultado['erro']}")
 
 # ============================================================================
 # RODAPÉ
@@ -365,4 +435,31 @@ with col1:
 with col2:
     st.markdown(f"⏱️ Próxima em: {tempo_restante}s")
 with col3:
-    st.markdown("🔄 Auto-refresh a cada 30s")
+    st.markdown("🔄 Auto-refresh 30s")
+
+# ============================================================================
+# VERIFICADOR ESPECÍFICO PARA PC
+# ============================================================================
+st.markdown("""
+<script>
+    // Verificação a cada 5 segundos
+    setInterval(function() {
+        var now = new Date();
+        console.log('🔄 Verificação PC - ' + now.toLocaleTimeString());
+        
+        // Forçar refresh se passar muito tempo
+        if (document.visibilityState === 'visible') {
+            // Só verifica se a aba está visível
+            var lastRefresh = localStorage.getItem('lastRefresh');
+            if (lastRefresh) {
+                var diff = (now.getTime() - parseInt(lastRefresh)) / 1000;
+                if (diff > 35) { // Mais de 35 segundos sem refresh
+                    console.log('⚠️ Forçando refresh por timeout');
+                    window.location.reload(true);
+                }
+            }
+            localStorage.setItem('lastRefresh', now.getTime().toString());
+        }
+    }, 5000);
+</script>
+""", unsafe_allow_html=True)
