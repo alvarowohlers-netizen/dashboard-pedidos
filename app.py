@@ -310,10 +310,21 @@ if resultado["sucesso"] and resultado["dados"]:
             aggfunc='sum'
         ).fillna(0)
         
-        # Calcular total de pedidos por tipo_limite para média
-        total_pedidos_por_limite = df_abertos.groupby('TIPO_LIMITE')['COUNT_ENTREGA'].sum()
-        total_pecas_por_limite = pivot_pecas.sum(axis=1)
-        media_pecas_por_pedido = (total_pecas_por_limite / total_pedidos_por_limite).fillna(0)
+        # Calcular totais por tipo_limite
+        totais_pedidos = df_abertos.groupby('TIPO_LIMITE')['COUNT_ENTREGA'].sum()
+        totais_pecas = pivot_pecas.sum(axis=1)
+        
+        # Calcular média de peças por pedido (com tratamento de erro)
+        medias = []
+        indices_validos = []
+        for i, tipo in enumerate(pivot_pecas.index):
+            if totais_pedidos[tipo] > 0:
+                media = totais_pecas[tipo] / totais_pedidos[tipo]
+                medias.append(media)
+                indices_validos.append(i)
+            else:
+                medias.append(0)
+                indices_validos.append(i)
         
         fig, ax = plt.subplots(figsize=(12, 6))
         cores = sns.color_palette("husl", len(pivot_pecas.columns))
@@ -325,17 +336,25 @@ if resultado["sucesso"] and resultado["dados"]:
         
         # Criar eixo secundário para a linha de média
         ax2 = ax.twinx()
-        ax2.plot(range(len(media_pecas_por_pedido)), media_pecas_por_pedido.values, 
-                color='red', marker='o', linewidth=3, markersize=8, label='Média Peças/Pedido')
+        
+        # Plotar linha de média
+        linha, = ax2.plot(range(len(medias)), medias, 
+                         color='red', marker='o', linewidth=3, markersize=8, 
+                         label='Média Peças/Pedido')
+        
+        # Configurar eixo secundário
+        max_media = max(medias) if medias else 1
+        ax2.set_ylim(0, max_media * 1.3)
         ax2.set_ylabel('Média de Peças por Pedido', fontsize=12, color='red')
         ax2.tick_params(axis='y', labelcolor='red')
-        ax2.set_ylim(0, media_pecas_por_pedido.max() * 1.2)
         
         # Adicionar valores na linha de média
-        for i, (idx, valor) in enumerate(media_pecas_por_pedido.items()):
-            ax2.text(i, valor + 0.5, f'{valor:.1f}', ha='center', va='bottom', 
-                    fontweight='bold', color='red', fontsize=10,
-                    bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.7))
+        for i, (tipo, media) in enumerate(zip(pivot_pecas.index, medias)):
+            if media > 0:
+                ax2.text(i, media + max_media*0.05, f'{media:.1f}', 
+                        ha='center', va='bottom', fontweight='bold', 
+                        color='red', fontsize=10,
+                        bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.7))
         
         ax.set_title('Quantidade de Peças por Tipo com Média Peças/Pedido', fontsize=14, fontweight='bold')
         ax.set_xlabel('Tipo de Limite', fontsize=12)
