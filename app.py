@@ -261,59 +261,60 @@ if resultado["sucesso"] and resultado["dados"]:
     # ============================================================================
     if len(df_abertos) > 0:
         
-       # ============================================================================
-# GRÁFICO 1.A - PEDIDOS POR TIPO DE LIMITE (BARRAS EMPILHADAS)
-# ============================================================================
-st.markdown('<p class="section-header">📊 GRÁFICO 1.A - PEDIDOS POR TIPO DE LIMITE (BARRAS EMPILHADAS)</p>', unsafe_allow_html=True)
-
-# Preparar dados com ordenação correta
-df_abertos['TIPO_LIMITE'] = pd.Categorical(
-    df_abertos['TIPO_LIMITE'], 
-    categories=ordenar_tipo_limite(df_abertos['TIPO_LIMITE'].unique()),
-    ordered=True
-)
-
-# CRIAR TABELA PIVOT PARA CONTAGEM DE PEDIDOS (NÃO SOMAR!)
-pivot_count = pd.crosstab(
-    df_abertos['TIPO_LIMITE'],
-    df_abertos['TIPO_ITEM']
-).fillna(0).reset_index()
-
-# Criar gráfico interativo com Plotly
-fig = go.Figure()
-
-for item in pivot_count.columns[1:]:  # Pula a primeira coluna (TIPO_LIMITE)
-    fig.add_trace(go.Bar(
-        name=item,
-        x=pivot_count['TIPO_LIMITE'],
-        y=pivot_count[item],
-        text=pivot_count[item].apply(lambda x: f'{x:,.0f}'),
-        textposition='inside',
-        textfont=dict(color='white', size=12, family='Arial Black'),
-        hovertemplate='<b>%{x}</b><br>' +
-                      f'{item}: %{{y:,.0f}} pedidos<br>' +
-                      '<extra></extra>'
-    ))
-
-fig.update_layout(
-    title='Quantidade de Pedidos por Tipo',
-    xaxis_title='Tipo de Limite',
-    yaxis_title='Quantidade de Pedidos',
-    barmode='stack',
-    hovermode='x unified',
-    legend=dict(
-        yanchor="top",
-        y=0.99,
-        xanchor="left",
-        x=1.05
-    ),
-    height=500,
-    template='plotly_white'
-)
-
-fig.update_yaxes(tickformat=",.0f")
-
-st.plotly_chart(fig, use_container_width=True)
+        # ============================================================================
+        # GRÁFICO 1.A - PEDIDOS POR TIPO DE LIMITE (CORRIGIDO - CONTA PEDIDOS)
+        # ============================================================================
+        st.markdown('<p class="section-header">📊 GRÁFICO 1.A - PEDIDOS POR TIPO DE LIMITE (BARRAS EMPILHADAS)</p>', unsafe_allow_html=True)
+        
+        # Preparar dados com ordenação correta
+        df_abertos['TIPO_LIMITE'] = pd.Categorical(
+            df_abertos['TIPO_LIMITE'], 
+            categories=ordenar_tipo_limite(df_abertos['TIPO_LIMITE'].unique()),
+            ordered=True
+        )
+        
+        # CRIAR TABELA PIVOT PARA CONTAGEM DE PEDIDOS (NÃO SOMAR!)
+        pivot_count = pd.crosstab(
+            df_abertos['TIPO_LIMITE'],
+            df_abertos['TIPO_ITEM']
+        ).fillna(0).reset_index()
+        
+        # Criar gráfico interativo com Plotly
+        fig = go.Figure()
+        
+        for item in pivot_count.columns[1:]:  # Pula a primeira coluna (TIPO_LIMITE)
+            fig.add_trace(go.Bar(
+                name=item,
+                x=pivot_count['TIPO_LIMITE'],
+                y=pivot_count[item],
+                text=pivot_count[item].apply(lambda x: f'{x:,.0f}'),
+                textposition='inside',
+                textfont=dict(color='white', size=12, family='Arial Black'),
+                hovertemplate='<b>%{x}</b><br>' +
+                              f'{item}: %{{y:,.0f}} pedidos<br>' +
+                              '<extra></extra>'
+            ))
+        
+        fig.update_layout(
+            title='Quantidade de Pedidos por Tipo',
+            xaxis_title='Tipo de Limite',
+            yaxis_title='Quantidade de Pedidos',
+            barmode='stack',
+            hovermode='x unified',
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="left",
+                x=1.05
+            ),
+            height=500,
+            template='plotly_white'
+        )
+        
+        fig.update_yaxes(tickformat=",.0f")
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
         # ============================================================================
         # GRÁFICO 1.B - PEÇAS POR TIPO DE LIMITE (COM LINHA DE MÉDIA)
         # ============================================================================
@@ -624,6 +625,15 @@ st.plotly_chart(fig, use_container_width=True)
             mime="text/csv",
             use_container_width=True
         )
+        
+        # Estatísticas da tabela
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("📊 Registros", len(df_filtrado))
+        with col2:
+            st.metric("🧩 Total Peças", df_filtrado['QT_PECAS'].sum())
+        with col3:
+            st.metric("📈 Média Peças", f"{df_filtrado['QT_PECAS'].mean():.1f}")
     
     else:
         st.warning("⚠️ Nenhum pedido aberto encontrado")
