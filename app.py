@@ -6,7 +6,7 @@ import seaborn as sns
 import requests
 import json
 from datetime import datetime, timedelta
-from streamlit_autorefresh import st_autorefresh
+import time
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -20,18 +20,12 @@ st.set_page_config(
 )
 
 # ============================================================================
-# AUTO-REFRESH OFICIAL DO STREAMLIT (SOLUÇÃO CORRETA!)
-# ============================================================================
-# 60000 ms = 1 minuto (para teste)
-# Depois pode aumentar para 300000 (5min) ou 3600000 (1h)
-contador = st_autorefresh(interval=60 * 1000, key="tvrefresh")
-
 # CSS personalizado
+# ============================================================================
 st.markdown("""
 <style>
     .main-header {
         font-size: 2.5rem;
-        color: #FF6B6B;
         text-align: center;
         padding: 1rem;
         background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
@@ -56,20 +50,14 @@ st.markdown("""
         font-size: 1rem;
         color: #666;
     }
-    .section-header {
-        background: #f8f9fa;
-        padding: 1rem;
-        border-radius: 5px;
-        margin: 1rem 0;
-        border-left: 5px solid #4ECDC4;
-    }
-    .refresh-info {
+    .refresh-box {
         background: #e8f4fd;
-        padding: 10px;
-        border-radius: 5px;
+        padding: 15px;
+        border-radius: 10px;
         text-align: center;
-        font-size: 1.2rem;
-        margin-bottom: 1rem;
+        font-size: 1.3rem;
+        margin: 20px 0;
+        border: 2px solid #4ECDC4;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -80,11 +68,19 @@ st.markdown("""
 st.markdown('<h1 class="main-header">📊 DASHBOARD DE PEDIDOS ABERTOS - TV</h1>', unsafe_allow_html=True)
 
 # ============================================================================
-# MOSTRAR INFORMAÇÃO DO REFRESH
+# CONTROLE DE REFRESH COM TIME.SLEEP (SOLUÇÃO MAIS SIMPLES)
 # ============================================================================
+if 'refresh_count' not in st.session_state:
+    st.session_state.refresh_count = 0
+    st.session_state.start_time = datetime.now()
+
+# Incrementa contador
+st.session_state.refresh_count += 1
+
+# Mostra informações do refresh
 st.markdown(f"""
-<div class="refresh-info">
-    🔄 Auto-refresh ativo - Atualização #{contador} - {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}
+<div class="refresh-box">
+    🔄 AUTO-REFRESH ATIVO | Atualização #{st.session_state.refresh_count} | {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}
 </div>
 """, unsafe_allow_html=True)
 
@@ -92,7 +88,6 @@ st.markdown(f"""
 # CLASSIFICAÇÃO DOS STATUS
 # ============================================================================
 CLASSIFICACAO_STATUS = {
-    # EXPEDIÇÃO
     "ALTERAÇÃO DE TRANSPORTADORA": "EXPEDIÇÃO",
     "CANCELAMENTO DE NF": "EXPEDIÇÃO", 
     "CONFERENCIA COM ERRO": "EXPEDIÇÃO",
@@ -104,8 +99,6 @@ CLASSIFICACAO_STATUS = {
     "INCLUSAO DE VOLUME NA CARGA": "EXPEDIÇÃO",
     "NOTA FISCAL ACEITA": "EXPEDIÇÃO",
     "REABERTURA DE VOLUMES": "EXPEDIÇÃO",
-    
-    # ABERTOS
     "EXCLUSAO DE ONDA DE COLETA": "ABERTOS",
     "FIM DE PICKING": "ABERTOS",
     "INCLUSAO EM ONDA DE COLETA": "ABERTOS",
@@ -119,9 +112,9 @@ CLASSIFICACAO_STATUS = {
 }
 
 # ============================================================================
-# FUNÇÃO PARA CONSULTAR API (CACHE REDUZIDO PARA TESTE)
+# FUNÇÃO PARA CONSULTAR API
 # ============================================================================
-@st.cache_data(ttl=55)  # 55 segundos de cache (menos que o refresh)
+@st.cache_data(ttl=55)
 def consultar_api_pedidos():
     api_url = "https://api-dw.bseller.com.br/webquery/execute/ZBIQ0104"
     token = "5A9D7B5EAC2E7478E05324F3A8C0D448"
@@ -218,18 +211,17 @@ if resultado["sucesso"] and resultado["dados"]:
         </div>
         """, unsafe_allow_html=True)
     
-    st.markdown("---")
-    
     # ============================================================================
     # GRÁFICOS
     # ============================================================================
     if len(df_abertos) > 0:
-        # Gráfico 1: Pedidos por Tipo
-        st.markdown('<p class="section-header">📦 PEDIDOS POR TIPO DE LIMITE</p>', unsafe_allow_html=True)
+        st.markdown("---")
+        st.markdown("### 📊 ANÁLISE GRÁFICA")
         
         col1, col2 = st.columns(2)
         
         with col1:
+            st.subheader("📦 Pedidos por Tipo de Limite")
             pivot = pd.crosstab(
                 df_abertos['TIPO_LIMITE'],
                 df_abertos['TIPO_ITEM'],
@@ -240,14 +232,13 @@ if resultado["sucesso"] and resultado["dados"]:
             fig, ax = plt.subplots(figsize=(12, 6))
             cores = sns.color_palette("husl", len(pivot.columns))
             pivot.plot(kind='bar', stacked=True, ax=ax, color=cores)
-            ax.set_title('Quantidade de Pedidos', fontsize=14, fontweight='bold')
             ax.set_xlabel('Tipo de Limite')
             ax.set_ylabel('Quantidade')
-            ax.legend(title='Tipo Item', bbox_to_anchor=(1.05, 1))
             plt.xticks(rotation=45)
             st.pyplot(fig)
         
         with col2:
+            st.subheader("🧩 Peças por Tipo de Limite")
             pivot2 = pd.crosstab(
                 df_abertos['TIPO_LIMITE'],
                 df_abertos['TIPO_ITEM'],
@@ -257,63 +248,16 @@ if resultado["sucesso"] and resultado["dados"]:
             
             fig, ax = plt.subplots(figsize=(12, 6))
             pivot2.plot(kind='bar', stacked=True, ax=ax, color=cores)
-            ax.set_title('Quantidade de Peças', fontsize=14, fontweight='bold')
             ax.set_xlabel('Tipo de Limite')
             ax.set_ylabel('Quantidade')
-            ax.legend(title='Tipo Item', bbox_to_anchor=(1.05, 1))
             plt.xticks(rotation=45)
-            st.pyplot(fig)
-        
-        st.markdown("---")
-        
-        # Gráfico 2: Análise por Status
-        st.markdown('<p class="section-header">🏆 ANÁLISE POR STATUS</p>', unsafe_allow_html=True)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            status_count = df_abertos['STATUS'].value_counts().head(10)
-            fig, ax = plt.subplots(figsize=(10, 6))
-            status_count.plot(kind='barh', ax=ax, color='#4ECDC4')
-            ax.set_title('Top 10 Status', fontsize=14, fontweight='bold')
-            ax.set_xlabel('Quantidade')
-            st.pyplot(fig)
-        
-        with col2:
-            status_media = df_abertos.groupby('STATUS')['QT_PECAS'].mean().sort_values(ascending=False).head(10)
-            fig, ax = plt.subplots(figsize=(10, 6))
-            status_media.plot(kind='barh', ax=ax, color='#FF6B6B')
-            ax.set_title('Média de Peças por Status', fontsize=14, fontweight='bold')
-            ax.set_xlabel('Média')
-            st.pyplot(fig)
-        
-        st.markdown("---")
-        
-        # Gráfico 3: Distribuição
-        st.markdown('<p class="section-header">🥧 DISTRIBUIÇÃO</p>', unsafe_allow_html=True)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            item_count = df_abertos['TIPO_ITEM'].value_counts()
-            fig, ax = plt.subplots(figsize=(8, 8))
-            ax.pie(item_count.values, labels=item_count.index, autopct='%1.1f%%')
-            ax.set_title('Pedidos por Tipo Item', fontsize=14, fontweight='bold')
-            st.pyplot(fig)
-        
-        with col2:
-            item_pecas = df_abertos.groupby('TIPO_ITEM')['QT_PECAS'].sum()
-            fig, ax = plt.subplots(figsize=(8, 8))
-            ax.pie(item_pecas.values, labels=item_pecas.index, autopct='%1.1f%%')
-            ax.set_title('Peças por Tipo Item', fontsize=14, fontweight='bold')
             st.pyplot(fig)
         
         # ============================================================================
         # TABELA
         # ============================================================================
         st.markdown("---")
-        st.markdown('<p class="section-header">📋 DADOS</p>', unsafe_allow_html=True)
-        
+        st.markdown("### 📋 DADOS DETALHADOS")
         st.dataframe(df_abertos, use_container_width=True, height=400)
     
     else:
@@ -323,12 +267,15 @@ else:
     st.error("❌ Erro ao conectar com a API")
 
 # ============================================================================
-# RODAPÉ
+# RODAPÉ COM TIMER (USANDO META REFRESH)
 # ============================================================================
 st.markdown("---")
 st.markdown(f"""
 <div style='text-align: center; color: gray; padding: 10px;'>
-    <p>🔄 Auto-refresh a cada 1 minuto (teste) | Última: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}</p>
-    <p>📺 Dashboard para TV - Atualização automática oficial do Streamlit</p>
+    <p>⏱️ Próxima atualização em 60 segundos</p>
+    <p>🕒 Última: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}</p>
 </div>
+
+<!-- META REFRESH A CADA 60 SEGUNDOS -->
+<meta http-equiv="refresh" content="60">
 """, unsafe_allow_html=True)
