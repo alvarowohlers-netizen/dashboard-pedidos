@@ -22,7 +22,7 @@ st.set_page_config(
 # META REFRESH - 1 MINUTO (PARA TESTE)
 # ============================================================================
 st.markdown("""
-<meta http-equiv="refresh" content="60">
+<meta http-equiv="refresh" content="1800">
 <style>
     /* CSS DAS PRIMEIRAS VERSÕES */
     .main-header {
