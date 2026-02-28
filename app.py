@@ -5,6 +5,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import requests
 import json
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
@@ -50,11 +53,6 @@ st.markdown("""
         padding-left: 100%;
     }
     
-    .marquee-header span:after {
-        content: " 📊 DASHBOARD DE PEDIDOS ABERTOS - TV 📊 ";
-        margin-left: 50px;
-    }
-    
     .metric-card {
         background: white;
         padding: 1.5rem;
@@ -81,12 +79,6 @@ st.markdown("""
         font-weight: bold;
         font-size: 1.3rem;
     }
-    .grafico-label {
-        font-size: 1.1rem;
-        color: #666;
-        margin-left: 10px;
-        font-weight: bold;
-    }
     .refresh-box {
         background: #e8f4fd;
         padding: 15px;
@@ -100,7 +92,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# TÍTULO EM FORMATO DE LETREIRO (MARQUEE) - MAIS LENTO E COM DUPLICAÇÃO
+# TÍTULO EM FORMATO DE LETREIRO
 # ============================================================================
 st.markdown("""
 <div class="marquee-header">
@@ -122,10 +114,9 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# CLASSIFICAÇÃO DOS STATUS (COMPLETA)
+# CLASSIFICAÇÃO DOS STATUS
 # ============================================================================
 CLASSIFICACAO_STATUS = {
-    # EXPEDIÇÃO
     "ALTERAÇÃO DE TRANSPORTADORA": "EXPEDIÇÃO",
     "CANCELAMENTO DE NF": "EXPEDIÇÃO", 
     "CONFERENCIA COM ERRO": "EXPEDIÇÃO",
@@ -137,8 +128,6 @@ CLASSIFICACAO_STATUS = {
     "INCLUSAO DE VOLUME NA CARGA": "EXPEDIÇÃO",
     "NOTA FISCAL ACEITA": "EXPEDIÇÃO",
     "REABERTURA DE VOLUMES": "EXPEDIÇÃO",
-    
-    # ABERTOS
     "EXCLUSAO DE ONDA DE COLETA": "ABERTOS",
     "FIM DE PICKING": "ABERTOS",
     "INCLUSAO EM ONDA DE COLETA": "ABERTOS",
@@ -185,6 +174,13 @@ def consultar_api_pedidos():
     return {"sucesso": False, "dados": None}
 
 # ============================================================================
+# FUNÇÃO PARA ORDENAR TIPO LIMITE
+# ============================================================================
+def ordenar_tipo_limite(tipos):
+    ordem = {'Data Limite': 0, 'D+1': 1, 'D+2': 2, 'D+3': 3, 'D+4+': 4}
+    return sorted(tipos, key=lambda x: ordem.get(x, 999))
+
+# ============================================================================
 # CONSULTAR API
 # ============================================================================
 with st.spinner("📡 Buscando dados..."):
@@ -205,9 +201,7 @@ if resultado["sucesso"] and resultado["dados"]:
     df_renamed['COUNT_ENTREGA'] = pd.to_numeric(df_renamed['COUNT_ENTREGA'], errors='coerce').fillna(1)
     df_renamed['QT_PECAS'] = pd.to_numeric(df_renamed['QT_PECAS'], errors='coerce').fillna(0)
     
-    # ============================================================================
-    # FILTRO PARA EXCLUIR CANAIS TRF E DIST
-    # ============================================================================
+    # Filtrar canais
     if 'CANAL' in df_renamed.columns:
         canais_excluir = ['TRF', 'DIST']
         df_renamed = df_renamed[~df_renamed['CANAL'].isin(canais_excluir)]
@@ -220,7 +214,7 @@ if resultado["sucesso"] and resultado["dados"]:
     df_abertos = df_renamed[df_renamed['TIPO_PEDIDO'] == 'ABERTOS'].copy()
     
     # ============================================================================
-    # MÉTRICAS PRINCIPAIS (CARDS BONITOS)
+    # MÉTRICAS
     # ============================================================================
     st.markdown("---")
     
@@ -263,260 +257,338 @@ if resultado["sucesso"] and resultado["dados"]:
     st.markdown("---")
     
     # ============================================================================
-    # GRÁFICOS - TODOS COM NOMES CLAROS (1.A, 1.B, 2.A, 2.B, ETC)
+    # GRÁFICOS
     # ============================================================================
     if len(df_abertos) > 0:
         
         # ============================================================================
-        # GRÁFICO 1.A - PEDIDOS POR TIPO DE LIMITE (BARRAS EMPILHADAS)
+        # GRÁFICO 1.A - PEDIDOS POR TIPO DE LIMITE (PLOTLY INTERATIVO)
         # ============================================================================
         st.markdown('<p class="section-header">📊 GRÁFICO 1.A - PEDIDOS POR TIPO DE LIMITE (BARRAS EMPILHADAS)</p>', unsafe_allow_html=True)
         
-        # Tabela pivot para contagem de pedidos
+        # Preparar dados com ordenação correta
+        df_abertos['TIPO_LIMITE'] = pd.Categorical(
+            df_abertos['TIPO_LIMITE'], 
+            categories=ordenar_tipo_limite(df_abertos['TIPO_LIMITE'].unique()),
+            ordered=True
+        )
+        
+        # Criar tabela pivot
         pivot_count = pd.crosstab(
             df_abertos['TIPO_LIMITE'],
             df_abertos['TIPO_ITEM'],
             values=df_abertos['COUNT_ENTREGA'],
             aggfunc='sum'
-        ).fillna(0)
+        ).fillna(0).reset_index()
         
-        fig, ax = plt.subplots(figsize=(12, 6))
-        cores = sns.color_palette("husl", len(pivot_count.columns))
-        bars = pivot_count.plot(kind='bar', stacked=True, ax=ax, color=cores)
+        # Criar gráfico interativo com Plotly
+        fig = go.Figure()
         
-        # Adicionar rótulos de dados corrigido (total por barra)
-        for c in ax.containers:
-            ax.bar_label(c, label_type='center', fontsize=9, fontweight='bold', color='white')
+        for item in pivot_count.columns[1:]:  # Pula a primeira coluna (TIPO_LIMITE)
+            fig.add_trace(go.Bar(
+                name=item,
+                x=pivot_count['TIPO_LIMITE'],
+                y=pivot_count[item],
+                text=pivot_count[item].apply(lambda x: f'{x:,.0f}'),
+                textposition='inside',
+                textfont=dict(color='white', size=12, family='Arial Black'),
+                hovertemplate='<b>%{x}</b><br>' +
+                              f'{item}: %{{y:,.0f}}<br>' +
+                              '<extra></extra>'
+            ))
         
-        ax.set_title('Quantidade de Pedidos por Tipo', fontsize=14, fontweight='bold')
-        ax.set_xlabel('Tipo de Limite', fontsize=12)
-        ax.set_ylabel('Quantidade de Pedidos', fontsize=12)
-        ax.legend(title='Tipo Item', bbox_to_anchor=(1.05, 1))
-        ax.grid(True, alpha=0.3, axis='y')
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        st.pyplot(fig)
+        fig.update_layout(
+            title='Quantidade de Pedidos por Tipo',
+            xaxis_title='Tipo de Limite',
+            yaxis_title='Quantidade de Pedidos',
+            barmode='stack',
+            hovermode='x unified',
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="left",
+                x=1.05
+            ),
+            height=500,
+            template='plotly_white'
+        )
+        
+        fig.update_yaxes(tickformat=",.0f")  # Formato sem notação científica
+        
+        st.plotly_chart(fig, use_container_width=True)
         
         # ============================================================================
-        # GRÁFICO 1.B - PEÇAS POR TIPO DE LIMITE (BARRAS EMPILHADAS + LINHA DE MÉDIA)
+        # GRÁFICO 1.B - PEÇAS POR TIPO DE LIMITE (COM LINHA DE MÉDIA)
         # ============================================================================
         st.markdown('<p class="section-header">📊 GRÁFICO 1.B - PEÇAS POR TIPO DE LIMITE (COM LINHA DE MÉDIA PEÇAS/PEDIDO)</p>', unsafe_allow_html=True)
         
-        # Tabela pivot para quantidade de peças
+        # Preparar dados
         pivot_pecas = pd.crosstab(
             df_abertos['TIPO_LIMITE'],
             df_abertos['TIPO_ITEM'],
             values=df_abertos['QT_PECAS'],
             aggfunc='sum'
-        ).fillna(0)
+        ).fillna(0).reset_index()
         
-        # Calcular totais por tipo_limite
+        # Calcular médias
         totais_pedidos = df_abertos.groupby('TIPO_LIMITE')['COUNT_ENTREGA'].sum()
-        totais_pecas = pivot_pecas.sum(axis=1)
+        totais_pecas = pivot_pecas.set_index('TIPO_LIMITE').sum(axis=1)
         
-        # Calcular média de peças por pedido (com tratamento de erro)
         medias = []
-        indices_validos = []
-        for i, tipo in enumerate(pivot_pecas.index):
+        for tipo in pivot_pecas['TIPO_LIMITE']:
             if totais_pedidos[tipo] > 0:
                 media = totais_pecas[tipo] / totais_pedidos[tipo]
-                medias.append(media)
-                indices_validos.append(i)
+                medias.append(round(media, 1))
             else:
                 medias.append(0)
-                indices_validos.append(i)
         
-        fig, ax = plt.subplots(figsize=(12, 6))
-        cores = sns.color_palette("husl", len(pivot_pecas.columns))
-        bars = pivot_pecas.plot(kind='bar', stacked=True, ax=ax, color=cores)
+        # Criar figura com dois eixos y
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
         
-        # Adicionar rótulos de dados nas barras de peças
-        for c in ax.containers:
-            ax.bar_label(c, label_type='center', fontsize=9, fontweight='bold', color='white')
+        # Adicionar barras empilhadas
+        for item in pivot_pecas.columns[1:]:
+            fig.add_trace(
+                go.Bar(
+                    name=item,
+                    x=pivot_pecas['TIPO_LIMITE'],
+                    y=pivot_pecas[item],
+                    text=pivot_pecas[item].apply(lambda x: f'{x:,.0f}'),
+                    textposition='inside',
+                    textfont=dict(color='white', size=11, family='Arial Black'),
+                    hovertemplate='<b>%{x}</b><br>' +
+                                  f'{item}: %{{y:,.0f}} peças<br>' +
+                                  '<extra></extra>'
+                ),
+                secondary_y=False
+            )
         
-        # Criar eixo secundário para a linha de média
-        ax2 = ax.twinx()
+        # Adicionar linha de média
+        fig.add_trace(
+            go.Scatter(
+                name='Média Peças/Pedido',
+                x=pivot_pecas['TIPO_LIMITE'],
+                y=medias,
+                mode='lines+markers+text',
+                line=dict(color='red', width=4),
+                marker=dict(size=12, color='red'),
+                text=[f'{m:.1f}' for m in medias],
+                textposition='top center',
+                textfont=dict(color='red', size=12, family='Arial Black'),
+                hovertemplate='<b>%{x}</b><br>' +
+                              'Média: %{y:.1f} peças/pedido<br>' +
+                              '<extra></extra>'
+            ),
+            secondary_y=True
+        )
         
-        # Plotar linha de média
-        linha, = ax2.plot(range(len(medias)), medias, 
-                         color='red', marker='o', linewidth=3, markersize=8, 
-                         label='Média Peças/Pedido')
+        # Configurar layout
+        fig.update_layout(
+            title='Quantidade de Peças por Tipo com Média Peças/Pedido',
+            hovermode='x unified',
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="left",
+                x=1.05
+            ),
+            height=500,
+            template='plotly_white'
+        )
         
-        # Configurar eixo secundário
-        max_media = max(medias) if medias else 1
-        ax2.set_ylim(0, max_media * 1.3)
-        ax2.set_ylabel('Média de Peças por Pedido', fontsize=12, color='red')
-        ax2.tick_params(axis='y', labelcolor='red')
+        fig.update_xaxes(title_text='Tipo de Limite')
+        fig.update_yaxes(title_text='Quantidade de Peças', tickformat=",.0f", secondary_y=False)
+        fig.update_yaxes(title_text='Média de Peças por Pedido', secondary_y=True, range=[0, max(medias) * 1.3 if medias else 1])
         
-        # Adicionar valores na linha de média
-        for i, (tipo, media) in enumerate(zip(pivot_pecas.index, medias)):
-            if media > 0:
-                ax2.text(i, media + max_media*0.05, f'{media:.1f}', 
-                        ha='center', va='bottom', fontweight='bold', 
-                        color='red', fontsize=10,
-                        bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.7))
-        
-        ax.set_title('Quantidade de Peças por Tipo com Média Peças/Pedido', fontsize=14, fontweight='bold')
-        ax.set_xlabel('Tipo de Limite', fontsize=12)
-        ax.set_ylabel('Quantidade de Peças', fontsize=12)
-        ax.legend(title='Tipo Item', bbox_to_anchor=(1.05, 0.8))
-        ax.grid(True, alpha=0.3, axis='y')
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        st.pyplot(fig)
+        st.plotly_chart(fig, use_container_width=True)
         
         st.markdown("---")
         
         # ============================================================================
-        # GRÁFICO 2.A - TOP 10 STATUS (MAIS FREQUENTES)
+        # GRÁFICO 2.A - TOP 10 STATUS
         # ============================================================================
         st.markdown('<p class="section-header">🏆 GRÁFICO 2.A - TOP 10 STATUS (MAIS FREQUENTES)</p>', unsafe_allow_html=True)
         
-        col1, col2 = st.columns(2)
+        status_count = df_abertos['STATUS'].value_counts().head(10).reset_index()
+        status_count.columns = ['STATUS', 'QUANTIDADE']
         
-        with col1:
-            status_count = df_abertos['STATUS'].value_counts().head(10)
-            
-            fig, ax = plt.subplots(figsize=(10, 6))
-            bars = ax.barh(range(len(status_count)), status_count.values, color='#4ECDC4')
-            ax.set_yticks(range(len(status_count)))
-            ax.set_yticklabels(status_count.index)
-            ax.set_xlabel('Quantidade de Pedidos', fontsize=12)
-            ax.set_title('Top 10 Status mais frequentes', fontsize=14, fontweight='bold')
-            
-            # Adicionar valores nas barras
-            for i, (bar, val) in enumerate(zip(bars, status_count.values)):
-                ax.text(val, i, f' {val}', va='center', fontweight='bold')
-            
-            plt.tight_layout()
-            st.pyplot(fig)
+        fig = px.bar(
+            status_count,
+            y='STATUS',
+            x='QUANTIDADE',
+            orientation='h',
+            title='Top 10 Status mais frequentes',
+            labels={'QUANTIDADE': 'Quantidade de Pedidos', 'STATUS': 'Status'},
+            text='QUANTIDADE',
+            color_discrete_sequence=['#4ECDC4']
+        )
+        
+        fig.update_traces(
+            texttemplate='%{text:,.0f}',
+            textposition='outside',
+            hovertemplate='<b>%{y}</b><br>Pedidos: %{x:,.0f}<extra></extra>'
+        )
+        
+        fig.update_layout(height=400, template='plotly_white')
+        
+        st.plotly_chart(fig, use_container_width=True)
         
         # ============================================================================
         # GRÁFICO 2.B - TOP 10 MÉDIA DE PEÇAS POR STATUS
         # ============================================================================
         st.markdown('<p class="section-header">🏆 GRÁFICO 2.B - TOP 10 MÉDIA DE PEÇAS POR STATUS</p>', unsafe_allow_html=True)
         
-        with col2:
-            status_media = df_abertos.groupby('STATUS')['QT_PECAS'].mean().sort_values(ascending=False).head(10)
-            
-            fig, ax = plt.subplots(figsize=(10, 6))
-            bars = ax.barh(range(len(status_media)), status_media.values, color='#FF6B6B')
-            ax.set_yticks(range(len(status_media)))
-            ax.set_yticklabels(status_media.index)
-            ax.set_xlabel('Média de Peças', fontsize=12)
-            ax.set_title('Top 10 - Média de Peças por Status', fontsize=14, fontweight='bold')
-            
-            for i, (bar, val) in enumerate(zip(bars, status_media.values)):
-                ax.text(val, i, f' {val:.1f}', va='center', fontweight='bold')
-            
-            plt.tight_layout()
-            st.pyplot(fig)
+        status_media = df_abertos.groupby('STATUS')['QT_PECAS'].mean().sort_values(ascending=False).head(10).reset_index()
+        status_media.columns = ['STATUS', 'MEDIA']
+        
+        fig = px.bar(
+            status_media,
+            y='STATUS',
+            x='MEDIA',
+            orientation='h',
+            title='Top 10 - Média de Peças por Status',
+            labels={'MEDIA': 'Média de Peças', 'STATUS': 'Status'},
+            text=status_media['MEDIA'].apply(lambda x: f'{x:.1f}'),
+            color_discrete_sequence=['#FF6B6B']
+        )
+        
+        fig.update_traces(
+            textposition='outside',
+            hovertemplate='<b>%{y}</b><br>Média: %{x:.1f} peças<extra></extra>'
+        )
+        
+        fig.update_layout(height=400, template='plotly_white')
+        
+        st.plotly_chart(fig, use_container_width=True)
         
         st.markdown("---")
         
         # ============================================================================
-        # GRÁFICO 3.A - DISTRIBUIÇÃO DE PEDIDOS POR TIPO ITEM (PIZZA)
+        # GRÁFICO 3.A - DISTRIBUIÇÃO DE PEDIDOS POR TIPO ITEM
         # ============================================================================
         st.markdown('<p class="section-header">🥧 GRÁFICO 3.A - DISTRIBUIÇÃO DE PEDIDOS POR TIPO ITEM</p>', unsafe_allow_html=True)
         
         col1, col2 = st.columns(2)
         
         with col1:
-            item_count = df_abertos['TIPO_ITEM'].value_counts()
+            item_count = df_abertos['TIPO_ITEM'].value_counts().reset_index()
+            item_count.columns = ['TIPO_ITEM', 'QUANTIDADE']
             
-            fig, ax = plt.subplots(figsize=(8, 8))
-            cores_pie = sns.color_palette("Set3", len(item_count))
-            wedges, texts, autotexts = ax.pie(
-                item_count.values, 
-                labels=item_count.index, 
-                autopct='%1.1f%%',
-                colors=cores_pie,
-                startangle=90,
-                textprops={'fontsize': 12, 'fontweight': 'bold'}
+            fig = px.pie(
+                item_count,
+                values='QUANTIDADE',
+                names='TIPO_ITEM',
+                title='Proporção de Pedidos por Tipo Item',
+                hole=0.3,
+                color_discrete_sequence=px.colors.qualitative.Set3
             )
-            ax.set_title('Proporção de Pedidos por Tipo Item', fontsize=14, fontweight='bold', pad=20)
-            plt.tight_layout()
-            st.pyplot(fig)
+            
+            fig.update_traces(
+                textposition='inside',
+                textinfo='percent+label',
+                hovertemplate='<b>%{label}</b><br>Pedidos: %{value:,.0f}<br>Percentual: %{percent}<extra></extra>'
+            )
+            
+            fig.update_layout(height=500)
+            
+            st.plotly_chart(fig, use_container_width=True)
         
         # ============================================================================
-        # GRÁFICO 3.B - DISTRIBUIÇÃO DE PEÇAS POR TIPO ITEM (PIZZA)
+        # GRÁFICO 3.B - DISTRIBUIÇÃO DE PEÇAS POR TIPO ITEM
         # ============================================================================
         st.markdown('<p class="section-header">🥧 GRÁFICO 3.B - DISTRIBUIÇÃO DE PEÇAS POR TIPO ITEM</p>', unsafe_allow_html=True)
         
         with col2:
-            item_pecas = df_abertos.groupby('TIPO_ITEM')['QT_PECAS'].sum()
+            item_pecas = df_abertos.groupby('TIPO_ITEM')['QT_PECAS'].sum().reset_index()
+            item_pecas.columns = ['TIPO_ITEM', 'QUANTIDADE']
             
-            fig, ax = plt.subplots(figsize=(8, 8))
-            wedges, texts, autotexts = ax.pie(
-                item_pecas.values, 
-                labels=item_pecas.index, 
-                autopct='%1.1f%%',
-                colors=cores_pie,
-                startangle=90,
-                textprops={'fontsize': 12, 'fontweight': 'bold'}
+            fig = px.pie(
+                item_pecas,
+                values='QUANTIDADE',
+                names='TIPO_ITEM',
+                title='Proporção de Peças por Tipo Item',
+                hole=0.3,
+                color_discrete_sequence=px.colors.qualitative.Set3
             )
-            ax.set_title('Proporção de Peças por Tipo Item', fontsize=14, fontweight='bold', pad=20)
-            plt.tight_layout()
-            st.pyplot(fig)
+            
+            fig.update_traces(
+                textposition='inside',
+                textinfo='percent+label',
+                hovertemplate='<b>%{label}</b><br>Peças: %{value:,.0f}<br>Percentual: %{percent}<extra></extra>'
+            )
+            
+            fig.update_layout(height=500)
+            
+            st.plotly_chart(fig, use_container_width=True)
         
         st.markdown("---")
         
         # ============================================================================
-        # GRÁFICO 4.A - PEDIDOS POR TIPO LIMITE (BARRAS SIMPLES)
+        # GRÁFICO 4.A - PEDIDOS POR TIPO LIMITE
         # ============================================================================
         st.markdown('<p class="section-header">📊 GRÁFICO 4.A - PEDIDOS POR TIPO LIMITE</p>', unsafe_allow_html=True)
         
         col1, col2 = st.columns(2)
         
         with col1:
-            limite_count = df_abertos['TIPO_LIMITE'].value_counts()
+            limite_count = df_abertos['TIPO_LIMITE'].value_counts().reindex(
+                ordenar_tipo_limite(df_abertos['TIPO_LIMITE'].unique())
+            ).reset_index()
+            limite_count.columns = ['TIPO_LIMITE', 'QUANTIDADE']
             
-            fig, ax = plt.subplots(figsize=(10, 6))
-            bars = ax.bar(range(len(limite_count)), limite_count.values, color='#45B7D1')
-            ax.set_xticks(range(len(limite_count)))
-            ax.set_xticklabels(limite_count.index)
-            ax.set_title('Pedidos por Tipo Limite', fontsize=14, fontweight='bold')
-            ax.set_xlabel('Tipo Limite', fontsize=12)
-            ax.set_ylabel('Quantidade', fontsize=12)
-            ax.grid(True, alpha=0.3, axis='y')
-            plt.xticks(rotation=45)
+            fig = px.bar(
+                limite_count,
+                x='TIPO_LIMITE',
+                y='QUANTIDADE',
+                title='Pedidos por Tipo Limite',
+                labels={'QUANTIDADE': 'Quantidade', 'TIPO_LIMITE': 'Tipo Limite'},
+                text='QUANTIDADE',
+                color_discrete_sequence=['#45B7D1']
+            )
             
-            # Adicionar valores nas barras
-            for i, (bar, v) in enumerate(zip(bars, limite_count.values)):
-                ax.text(i, v + 5, str(v), ha='center', fontweight='bold', fontsize=11)
+            fig.update_traces(
+                texttemplate='%{text:,.0f}',
+                textposition='outside',
+                hovertemplate='<b>%{x}</b><br>Pedidos: %{y:,.0f}<extra></extra>'
+            )
             
-            plt.tight_layout()
-            st.pyplot(fig)
+            fig.update_layout(height=400, template='plotly_white')
+            
+            st.plotly_chart(fig, use_container_width=True)
         
         # ============================================================================
-        # GRÁFICO 4.B - PEÇAS POR TIPO LIMITE (BARRAS SIMPLES)
+        # GRÁFICO 4.B - PEÇAS POR TIPO LIMITE
         # ============================================================================
         st.markdown('<p class="section-header">📊 GRÁFICO 4.B - PEÇAS POR TIPO LIMITE</p>', unsafe_allow_html=True)
         
         with col2:
-            limite_pecas = df_abertos.groupby('TIPO_LIMITE')['QT_PECAS'].sum()
+            limite_pecas = df_abertos.groupby('TIPO_LIMITE')['QT_PECAS'].sum().reindex(
+                ordenar_tipo_limite(df_abertos['TIPO_LIMITE'].unique())
+            ).reset_index()
+            limite_pecas.columns = ['TIPO_LIMITE', 'QUANTIDADE']
             
-            fig, ax = plt.subplots(figsize=(10, 6))
-            bars = ax.bar(range(len(limite_pecas)), limite_pecas.values, color='#FF6B6B')
-            ax.set_xticks(range(len(limite_pecas)))
-            ax.set_xticklabels(limite_pecas.index)
-            ax.set_title('Peças por Tipo Limite', fontsize=14, fontweight='bold')
-            ax.set_xlabel('Tipo Limite', fontsize=12)
-            ax.set_ylabel('Quantidade', fontsize=12)
-            ax.grid(True, alpha=0.3, axis='y')
-            plt.xticks(rotation=45)
+            fig = px.bar(
+                limite_pecas,
+                x='TIPO_LIMITE',
+                y='QUANTIDADE',
+                title='Peças por Tipo Limite',
+                labels={'QUANTIDADE': 'Quantidade', 'TIPO_LIMITE': 'Tipo Limite'},
+                text=limite_pecas['QUANTIDADE'].apply(lambda x: f'{x:,.0f}'),
+                color_discrete_sequence=['#FF6B6B']
+            )
             
-            # Adicionar valores nas barras
-            for i, (bar, v) in enumerate(zip(bars, limite_pecas.values)):
-                ax.text(i, v + 50, str(v), ha='center', fontweight='bold', fontsize=11)
+            fig.update_traces(
+                textposition='outside',
+                hovertemplate='<b>%{x}</b><br>Peças: %{y:,.0f}<extra></extra>'
+            )
             
-            plt.tight_layout()
-            st.pyplot(fig)
+            fig.update_layout(height=400, template='plotly_white')
+            
+            st.plotly_chart(fig, use_container_width=True)
         
         st.markdown("---")
         
         # ============================================================================
-        # TABELA COM FILTROS
+        # TABELA
         # ============================================================================
         st.markdown('<p class="section-header">📋 TABELA - DADOS DETALHADOS</p>', unsafe_allow_html=True)
         
@@ -524,7 +596,7 @@ if resultado["sucesso"] and resultado["dados"]:
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            tipos_limite = ['Todos'] + sorted(df_abertos['TIPO_LIMITE'].unique().tolist())
+            tipos_limite = ['Todos'] + ordenar_tipo_limite(df_abertos['TIPO_LIMITE'].unique().tolist())
             filtro_limite = st.selectbox("📌 Filtrar por Tipo Limite", tipos_limite)
         
         with col2:
@@ -555,15 +627,6 @@ if resultado["sucesso"] and resultado["dados"]:
             mime="text/csv",
             use_container_width=True
         )
-        
-        # Estatísticas da tabela
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("📊 Registros", len(df_filtrado))
-        with col2:
-            st.metric("🧩 Total Peças", df_filtrado['QT_PECAS'].sum())
-        with col3:
-            st.metric("📈 Média Peças", f"{df_filtrado['QT_PECAS'].mean():.1f}")
     
     else:
         st.warning("⚠️ Nenhum pedido aberto encontrado")
