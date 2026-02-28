@@ -7,8 +7,6 @@ import requests
 import json
 from datetime import datetime, timedelta
 import time
-import platform
-import random
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -16,55 +14,50 @@ warnings.filterwarnings('ignore')
 # CONFIGURAÇÃO DA PÁGINA
 # ============================================================================
 st.set_page_config(
-    page_title="📊 Dashboard de Pedidos",
-    page_icon="📦",
+    page_title="📺 TV Dashboard - Pedidos",
+    page_icon="📊",
     layout="wide"
 )
 
-# CSS personalizado
+# CSS para TV
 st.markdown("""
 <style>
     .main-header {
-        font-size: 2.5rem;
-        color: #FF6B6B;
+        font-size: 3rem;
         text-align: center;
-        padding: 1rem;
+        padding: 2rem;
         background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
         color: white;
-        border-radius: 10px;
+        border-radius: 15px;
         margin-bottom: 2rem;
     }
     .metric-card {
         background: white;
-        padding: 1.5rem;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        padding: 2rem;
+        border-radius: 15px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         text-align: center;
-        border-left: 5px solid #FF6B6B;
+        border-left: 8px solid #FF6B6B;
     }
     .metric-value {
-        font-size: 2rem;
+        font-size: 3rem;
         font-weight: bold;
         color: #333;
     }
     .metric-label {
-        font-size: 1rem;
+        font-size: 1.5rem;
         color: #666;
-    }
-    .refresh-box {
-        background: #f0f2f6;
-        padding: 1rem;
-        border-radius: 10px;
-        text-align: center;
-        border: 2px solid #4ECDC4;
     }
 </style>
 """, unsafe_allow_html=True)
 
+st.markdown('<h1 class="main-header">📺 TV DASHBOARD - PEDIDOS ABERTOS</h1>', unsafe_allow_html=True)
+
 # ============================================================================
-# TÍTULO
+# CONFIGURAÇÃO DE TEMPO (AJUSTE AQUI!)
 # ============================================================================
-st.markdown('<h1 class="main-header">📊 DASHBOARD DE PEDIDOS ABERTOS</h1>', unsafe_allow_html=True)
+MINUTOS_PARA_REFRESH = 5  # ← Mude para 5, 10, 15, 30, 60 minutos
+SEGUNDOS_PARA_REFRESH = MINUTOS_PARA_REFRESH * 60
 
 # ============================================================================
 # CLASSIFICAÇÃO DOS STATUS
@@ -96,7 +89,7 @@ CLASSIFICACAO_STATUS = {
 # ============================================================================
 # FUNÇÃO PARA CONSULTAR API
 # ============================================================================
-@st.cache_data(ttl=1800)  # Cache de 30 minutos para não sobrecarregar
+@st.cache_data(ttl=60)
 def consultar_api_pedidos():
     api_url = "https://api-dw.bseller.com.br/webquery/execute/ZBIQ0104"
     token = "5A9D7B5EAC2E7478E05324F3A8C0D448"
@@ -127,90 +120,74 @@ def consultar_api_pedidos():
     return {"sucesso": False, "dados": None}
 
 # ============================================================================
-# CONTROLE DE ATUALIZAÇÃO - 1 HORA
+# MÚLTIPLOS MÉTODOS DE REFRESH
 # ============================================================================
 
-# Inicializar o estado
-if 'ultima_atualizacao' not in st.session_state:
-    st.session_state.ultima_atualizacao = datetime.now()
-if 'contador' not in st.session_state:
-    st.session_state.contador = 0
+# MÉTODO 1: META REFRESH (mais confiável)
+st.markdown(f"""
+<meta http-equiv="refresh" content="{SEGUNDOS_PARA_REFRESH}">
+""", unsafe_allow_html=True)
 
-# Calcular tempo restante (3600 segundos = 1 hora)
-tempo_passado = (datetime.now() - st.session_state.ultima_atualizacao).seconds
-tempo_restante = max(0, 3600 - tempo_passado)  # 3600 segundos = 1 hora
-
-# Converter para horas e minutos
-horas = tempo_restante // 3600
-minutos = (tempo_restante % 3600) // 60
-segundos = tempo_restante % 60
-
-# Mostrar painel de controle
-st.markdown("### ⏰ CONTROLE DE ATUALIZAÇÃO")
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    if st.button("🔄 ATUALIZAR MANUAL", type="primary"):
-        st.session_state.ultima_atualizacao = datetime.now()
-        st.session_state.contador += 1
-        st.cache_data.clear()
-        st.rerun()
-
-with col2:
-    st.markdown(f"""
-    <div class='refresh-box'>
-        <h3>🔄 {st.session_state.contador}</h3>
-        <p>Atualizações</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-with col3:
-    st.markdown(f"""
-    <div class='refresh-box'>
-        <h3>⏱️ {horas:02d}:{minutos:02d}:{segundos:02d}</h3>
-        <p>Próxima atualização</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-# ============================================================================
-# REFRESH A CADA 1 HORA (mais leve)
-# ============================================================================
-
-# Método suave de refresh (só recarrega a cada 1 hora)
-st.components.v1.html("""
+# MÉTODO 2: JAVASCRIPT COM RELOAD FORÇADO
+st.components.v1.html(f"""
 <script>
-    // Refresh a cada 1 hora (3600000 ms)
-    setTimeout(function() {
-        window.location.reload();
-    }, 3600000);
+    // Método 1: setTimeout
+    setTimeout(function() {{
+        console.log('🔄 Refresh método 1');
+        window.location.reload(true);
+    }}, {SEGUNDOS_PARA_REFRESH * 1000});
     
-    // Mostrar status no canto
-    var statusDiv = document.createElement('div');
-    statusDiv.style.cssText = 'position: fixed; bottom: 10px; right: 10px; background: #333; color: white; padding: 5px 10px; border-radius: 5px; font-size: 12px; z-index: 9999;';
-    statusDiv.innerHTML = '⏰ Atualiza a cada 1 hora';
-    document.body.appendChild(statusDiv);
+    // Método 2: setInterval (backup)
+    setInterval(function() {{
+        console.log('🔄 Refresh método 2');
+        window.location.reload(true);
+    }}, {SEGUNDOS_PARA_REFRESH * 1000 + 1000});
+    
+    // Método 3: Forçar limpeza de cache
+    if (!window.location.search.includes('_t=')) {{
+        var url = window.location.href + 
+                  (window.location.href.includes('?') ? '&' : '?') + 
+                  '_t=' + new Date().getTime();
+        window.location.replace(url);
+    }}
+    
+    // Mostrar timer na tela (para debug)
+    var timerDiv = document.createElement('div');
+    timerDiv.style.cssText = 'position: fixed; bottom: 10px; right: 10px; background: #333; color: white; padding: 10px; border-radius: 5px; z-index: 9999; font-size: 16px;';
+    timerDiv.id = 'tv-timer';
+    document.body.appendChild(timerDiv);
+    
+    var seconds = {SEGUNDOS_PARA_REFRESH};
+    setInterval(function() {{
+        seconds--;
+        if (seconds <= 0) seconds = {SEGUNDOS_PARA_REFRESH};
+        var mins = Math.floor(seconds / 60);
+        var secs = seconds % 60;
+        document.getElementById('tv-timer').innerHTML = '🔄 Próximo refresh: ' + mins + 'min ' + secs + 's';
+    }}, 1000);
 </script>
 """, height=0)
 
+# MÉTODO 4: STREAMLIT RERUN
+if 'ultimo_refresh' not in st.session_state:
+    st.session_state.ultimo_refresh = datetime.now()
+
+tempo_passado = (datetime.now() - st.session_state.ultimo_refresh).seconds
+if tempo_passado >= SEGUNDOS_PARA_REFRESH:
+    st.session_state.ultimo_refresh = datetime.now()
+    st.cache_data.clear()
+    st.rerun()
+
 # ============================================================================
-# CONSULTAR API
+# CONSULTAR API E MOSTRAR DADOS
 # ============================================================================
 with st.spinner("📡 Buscando dados..."):
     resultado = consultar_api_pedidos()
 
 if resultado["sucesso"] and resultado["dados"]:
-    with col4:
-        st.markdown("""
-        <div class='refresh-box' style='border-color: #00FF00;'>
-            <h3>✅ Online</h3>
-            <p>API Status</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
     df = pd.DataFrame(resultado["dados"])
     
-    # Mapeamento das colunas
+    # Processar dados
     df_renamed = df.rename(columns={
         'TIPO_ITEM': 'TIPO_ITEM',
         'TIPO_LIMITE': 'TIPO_LIMITE',
@@ -221,25 +198,17 @@ if resultado["sucesso"] and resultado["dados"]:
     df_renamed['STATUS'] = df['STATUS']
     df_renamed['COUNT_ENTREGA'] = pd.to_numeric(df_renamed['COUNT_ENTREGA'], errors='coerce').fillna(1)
     df_renamed['QT_PECAS'] = pd.to_numeric(df_renamed['QT_PECAS'], errors='coerce').fillna(0)
-    
-    df_renamed['TIPO_PEDIDO'] = df_renamed['STATUS'].map(CLASSIFICACAO_STATUS)
-    df_renamed['TIPO_PEDIDO'] = df_renamed['TIPO_PEDIDO'].fillna('OUTROS')
-    
+    df_renamed['TIPO_PEDIDO'] = df_renamed['STATUS'].map(CLASSIFICACAO_STATUS).fillna('OUTROS')
     df_abertos = df_renamed[df_renamed['TIPO_PEDIDO'] == 'ABERTOS'].copy()
     
-    # ============================================================================
-    # MÉTRICAS
-    # ============================================================================
-    st.markdown("---")
-    st.markdown("### 📈 MÉTRICAS ATUAIS")
-    
+    # MÉTRICAS GRANDES (para TV)
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-value">{len(df_abertos):,}</div>
-            <div class="metric-label">📦 Pedidos Abertos</div>
+            <div class="metric-label">📦 PEDIDOS ABERTOS</div>
         </div>
         """, unsafe_allow_html=True)
     
@@ -248,7 +217,7 @@ if resultado["sucesso"] and resultado["dados"]:
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-value">{total_pecas:,}</div>
-            <div class="metric-label">🧩 Total de Peças</div>
+            <div class="metric-label">🧩 TOTAL PEÇAS</div>
         </div>
         """, unsafe_allow_html=True)
     
@@ -257,128 +226,54 @@ if resultado["sucesso"] and resultado["dados"]:
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-value">{media:.1f}</div>
-            <div class="metric-label">📊 Média Peças/Pedido</div>
+            <div class="metric-label">📊 MÉDIA PEÇAS</div>
         </div>
         """, unsafe_allow_html=True)
     
     with col4:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-value">{df_abertos['STATUS'].nunique()}</div>
-            <div class="metric-label">🔄 Status</div>
+            <div class="metric-value">{SEGUNDOS_PARA_REFRESH // 60}</div>
+            <div class="metric-label">⏱️ REFRESH (min)</div>
         </div>
         """, unsafe_allow_html=True)
     
-    # ============================================================================
     # GRÁFICOS
-    # ============================================================================
     if len(df_abertos) > 0:
         st.markdown("---")
-        st.markdown("### 📊 ANÁLISE GRÁFICA")
-        
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("📦 Pedidos por Tipo de Limite")
-            pivot = pd.crosstab(
-                df_abertos['TIPO_LIMITE'],
-                df_abertos['TIPO_ITEM'],
-                values=df_abertos['COUNT_ENTREGA'],
-                aggfunc='sum'
-            ).fillna(0)
-            
-            fig, ax = plt.subplots(figsize=(10, 6))
-            cores = sns.color_palette("husl", len(pivot.columns))
-            pivot.plot(kind='bar', stacked=True, ax=ax, color=cores)
-            ax.set_xlabel('Tipo de Limite')
-            ax.set_ylabel('Quantidade de Pedidos')
-            plt.xticks(rotation=45)
+            pivot = pd.crosstab(df_abertos['TIPO_LIMITE'], df_abertos['TIPO_ITEM'], 
+                               values=df_abertos['COUNT_ENTREGA'], aggfunc='sum').fillna(0)
+            fig, ax = plt.subplots(figsize=(12, 6))
+            pivot.plot(kind='bar', stacked=True, ax=ax, 
+                      color=sns.color_palette("husl", len(pivot.columns)))
+            ax.set_title('Pedidos por Tipo', fontsize=16)
+            ax.set_xlabel('Tipo Limite', fontsize=14)
+            plt.xticks(rotation=45, fontsize=12)
             st.pyplot(fig)
         
         with col2:
-            st.subheader("🧩 Peças por Tipo de Limite")
-            pivot2 = pd.crosstab(
-                df_abertos['TIPO_LIMITE'],
-                df_abertos['TIPO_ITEM'],
-                values=df_abertos['QT_PECAS'],
-                aggfunc='sum'
-            ).fillna(0)
-            
-            fig, ax = plt.subplots(figsize=(10, 6))
-            pivot2.plot(kind='bar', stacked=True, ax=ax, color=cores)
-            ax.set_xlabel('Tipo de Limite')
-            ax.set_ylabel('Quantidade de Peças')
-            plt.xticks(rotation=45)
+            pivot2 = pd.crosstab(df_abertos['TIPO_LIMITE'], df_abertos['TIPO_ITEM'],
+                                values=df_abertos['QT_PECAS'], aggfunc='sum').fillna(0)
+            fig, ax = plt.subplots(figsize=(12, 6))
+            pivot2.plot(kind='bar', stacked=True, ax=ax,
+                       color=sns.color_palette("husl", len(pivot2.columns)))
+            ax.set_title('Peças por Tipo', fontsize=16)
+            ax.set_xlabel('Tipo Limite', fontsize=14)
+            plt.xticks(rotation=45, fontsize=12)
             st.pyplot(fig)
-        
-        # ============================================================================
-        # TABELA
-        # ============================================================================
-        st.markdown("---")
-        st.markdown("### 📋 DADOS DETALHADOS")
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            tipos_limite = ['Todos'] + sorted(df_abertos['TIPO_LIMITE'].unique().tolist())
-            filtro_limite = st.selectbox("Filtrar por Tipo Limite", tipos_limite)
-        with col2:
-            tipos_item = ['Todos'] + sorted(df_abertos['TIPO_ITEM'].unique().tolist())
-            filtro_item = st.selectbox("Filtrar por Tipo Item", tipos_item)
-        with col3:
-            status_opcoes = ['Todos'] + sorted(df_abertos['STATUS'].unique().tolist())
-            filtro_status = st.selectbox("Filtrar por Status", status_opcoes)
-        
-        df_filtrado = df_abertos.copy()
-        if filtro_limite != 'Todos':
-            df_filtrado = df_filtrado[df_filtrado['TIPO_LIMITE'] == filtro_limite]
-        if filtro_item != 'Todos':
-            df_filtrado = df_filtrado[df_filtrado['TIPO_ITEM'] == filtro_item]
-        if filtro_status != 'Todos':
-            df_filtrado = df_filtrado[df_filtrado['STATUS'] == filtro_status]
-        
-        st.dataframe(df_filtrado, use_container_width=True, height=400)
-        
-        # Download
-        csv = df_filtrado.to_csv(index=False)
-        st.download_button(
-            label="📥 Download CSV",
-            data=csv,
-            file_name=f"pedidos_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
     
+    # INFO
+    st.markdown(f"""
+    <div style='text-align: center; padding: 20px; background: #e8f4fd; border-radius: 10px; margin-top: 20px;'>
+        <h3>🕒 Última atualização: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}</h3>
+        <h3>⏱️ Próximo refresh em {MINUTOS_PARA_REFRESH} minutos</h3>
+    </div>
+    """, unsafe_allow_html=True)
+
 else:
-    with col4:
-        st.markdown("""
-        <div class='refresh-box' style='border-color: #FF0000;'>
-            <h3>❌ Offline</h3>
-            <p>API Status</p>
-        </div>
-        """, unsafe_allow_html=True)
-    st.error("❌ Erro ao conectar com a API")
-
-# ============================================================================
-# RODAPÉ
-# ============================================================================
-st.markdown("---")
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.markdown(f"🕒 Última: {st.session_state.ultima_atualizacao.strftime('%d/%m/%Y %H:%M:%S')}")
-with col2:
-    st.markdown(f"⏱️ Próxima: em {horas}h {minutos}min")
-with col3:
-    st.markdown("🔄 Atualização: 1 hora")
-
-# ============================================================================
-# TIMER NO SIDEBAR (OPCIONAL)
-# ============================================================================
-with st.sidebar:
-    st.markdown("### ⏰ Próxima atualização")
-    st.markdown(f"# {horas:02d}:{minutos:02d}:{segundos:02d}")
-    st.progress(1 - (tempo_restante / 3600))
-    st.markdown("---")
-    st.markdown("🔄 **Manual:** clique no botão 'ATUALIZAR MANUAL'")
-    st.markdown("⏱️ **Automático:** a cada 1 hora")
-    st.markdown("📱 **Celular:** funcionando perfeitamente")
-    st.markdown("💻 **PC:** em ajuste...")
+    st.error("❌ Erro na API - tentando novamente...")
+    time.sleep(5)
+    st.rerun()
