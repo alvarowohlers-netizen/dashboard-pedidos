@@ -1,5 +1,5 @@
 import streamlit as st
-import pandas as pd  # ← CORRIGIDO (tinha "as as")
+import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -19,13 +19,18 @@ st.set_page_config(
 )
 
 # ============================================================================
-# META REFRESH - 1 MINUTO (PARA TESTE)
+# META REFRESH - 30 MINUTOS (1800 SEGUNDOS)
 # ============================================================================
 st.markdown("""
 <meta http-equiv="refresh" content="1800">
 <style>
     /* CSS DAS PRIMEIRAS VERSÕES */
-    .main-header {
+    @keyframes marquee {
+        0% { transform: translateX(100%); }
+        100% { transform: translateX(-100%); }
+    }
+    
+    .marquee-header {
         font-size: 2.5rem;
         color: #FF6B6B;
         text-align: center;
@@ -34,7 +39,17 @@ st.markdown("""
         color: white;
         border-radius: 10px;
         margin-bottom: 2rem;
+        overflow: hidden;
+        white-space: nowrap;
+        position: relative;
     }
+    
+    .marquee-header span {
+        display: inline-block;
+        animation: marquee 15s linear infinite;
+        padding-left: 100%;
+    }
+    
     .metric-card {
         background: white;
         padding: 1.5rem;
@@ -74,9 +89,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# TÍTULO BONITO (IGUAL PRIMEIRAS VERSÕES)
+# TÍTULO EM FORMATO DE LETREIRO (MARQUEE)
 # ============================================================================
-st.markdown('<h1 class="main-header">📊 DASHBOARD DE PEDIDOS ABERTOS - TV</h1>', unsafe_allow_html=True)
+st.markdown("""
+<div class="marquee-header">
+    <span>📊 DASHBOARD DE PEDIDOS ABERTOS - TV 📊</span>
+</div>
+""", unsafe_allow_html=True)
 
 # ============================================================================
 # CONTROLE DE ATUALIZAÇÃO
@@ -175,6 +194,14 @@ if resultado["sucesso"] and resultado["dados"]:
     df_renamed['COUNT_ENTREGA'] = pd.to_numeric(df_renamed['COUNT_ENTREGA'], errors='coerce').fillna(1)
     df_renamed['QT_PECAS'] = pd.to_numeric(df_renamed['QT_PECAS'], errors='coerce').fillna(0)
     
+    # ============================================================================
+    # FILTRO PARA EXCLUIR CANAIS TRF E DIST
+    # ============================================================================
+    if 'CANAL' in df_renamed.columns:
+        canais_excluir = ['TRF', 'DIST']
+        df_renamed = df_renamed[~df_renamed['CANAL'].isin(canais_excluir)]
+        st.sidebar.success(f"✅ Filtro aplicado: canais TRF e DIST removidos")
+    
     df_renamed['TIPO_PEDIDO'] = df_renamed['STATUS'].map(CLASSIFICACAO_STATUS)
     df_renamed['TIPO_PEDIDO'] = df_renamed['TIPO_PEDIDO'].fillna('OUTROS')
     
@@ -225,12 +252,12 @@ if resultado["sucesso"] and resultado["dados"]:
     st.markdown("---")
     
     # ============================================================================
-    # GRÁFICOS - VERSÃO COMPLETA (IGUAL PRIMEIRAS VERSÕES)
+    # GRÁFICOS - VERSÃO COMPLETA COM RÓTULOS DE DADOS
     # ============================================================================
     if len(df_abertos) > 0:
         
         # ============================================================================
-        # GRÁFICO 1: BARRAS EMPILHADAS - PEDIDOS POR TIPO
+        # GRÁFICO 1: BARRAS EMPILHADAS - PEDIDOS POR TIPO COM RÓTULOS
         # ============================================================================
         st.markdown('<p class="section-header">📦 PEDIDOS POR TIPO DE LIMITE (BARRAS EMPILHADAS)</p>', unsafe_allow_html=True)
         
@@ -247,7 +274,12 @@ if resultado["sucesso"] and resultado["dados"]:
             
             fig, ax = plt.subplots(figsize=(12, 6))
             cores = sns.color_palette("husl", len(pivot_count.columns))
-            pivot_count.plot(kind='bar', stacked=True, ax=ax, color=cores)
+            bars = pivot_count.plot(kind='bar', stacked=True, ax=ax, color=cores)
+            
+            # Adicionar rótulos de dados nas barras
+            for c in ax.containers:
+                ax.bar_label(c, label_type='center', fontsize=9, fontweight='bold', color='white')
+            
             ax.set_title('Quantidade de Pedidos por Tipo', fontsize=14, fontweight='bold')
             ax.set_xlabel('Tipo de Limite', fontsize=12)
             ax.set_ylabel('Quantidade de Pedidos', fontsize=12)
@@ -267,7 +299,13 @@ if resultado["sucesso"] and resultado["dados"]:
             ).fillna(0)
             
             fig, ax = plt.subplots(figsize=(12, 6))
-            pivot_pecas.plot(kind='bar', stacked=True, ax=ax, color=cores)
+            cores = sns.color_palette("husl", len(pivot_pecas.columns))
+            bars = pivot_pecas.plot(kind='bar', stacked=True, ax=ax, color=cores)
+            
+            # Adicionar rótulos de dados nas barras
+            for c in ax.containers:
+                ax.bar_label(c, label_type='center', fontsize=9, fontweight='bold', color='white')
+            
             ax.set_title('Quantidade de Peças por Tipo', fontsize=14, fontweight='bold')
             ax.set_xlabel('Tipo de Limite', fontsize=12)
             ax.set_ylabel('Quantidade de Peças', fontsize=12)
@@ -375,15 +413,18 @@ if resultado["sucesso"] and resultado["dados"]:
             limite_count = df_abertos['TIPO_LIMITE'].value_counts()
             
             fig, ax = plt.subplots(figsize=(10, 6))
-            limite_count.plot(kind='bar', ax=ax, color='#45B7D1')
+            bars = ax.bar(range(len(limite_count)), limite_count.values, color='#45B7D1')
+            ax.set_xticks(range(len(limite_count)))
+            ax.set_xticklabels(limite_count.index)
             ax.set_title('Pedidos por Tipo Limite', fontsize=14, fontweight='bold')
             ax.set_xlabel('Tipo Limite', fontsize=12)
             ax.set_ylabel('Quantidade', fontsize=12)
             ax.grid(True, alpha=0.3, axis='y')
             plt.xticks(rotation=45)
             
-            for i, v in enumerate(limite_count.values):
-                ax.text(i, v + 5, str(v), ha='center', fontweight='bold')
+            # Adicionar valores nas barras
+            for i, (bar, v) in enumerate(zip(bars, limite_count.values)):
+                ax.text(i, v + 5, str(v), ha='center', fontweight='bold', fontsize=11)
             
             plt.tight_layout()
             st.pyplot(fig)
@@ -392,15 +433,18 @@ if resultado["sucesso"] and resultado["dados"]:
             limite_pecas = df_abertos.groupby('TIPO_LIMITE')['QT_PECAS'].sum()
             
             fig, ax = plt.subplots(figsize=(10, 6))
-            limite_pecas.plot(kind='bar', ax=ax, color='#FF6B6B')
+            bars = ax.bar(range(len(limite_pecas)), limite_pecas.values, color='#FF6B6B')
+            ax.set_xticks(range(len(limite_pecas)))
+            ax.set_xticklabels(limite_pecas.index)
             ax.set_title('Peças por Tipo Limite', fontsize=14, fontweight='bold')
             ax.set_xlabel('Tipo Limite', fontsize=12)
             ax.set_ylabel('Quantidade', fontsize=12)
             ax.grid(True, alpha=0.3, axis='y')
             plt.xticks(rotation=45)
             
-            for i, v in enumerate(limite_pecas.values):
-                ax.text(i, v + 50, str(v), ha='center', fontweight='bold')
+            # Adicionar valores nas barras
+            for i, (bar, v) in enumerate(zip(bars, limite_pecas.values)):
+                ax.text(i, v + 50, str(v), ha='center', fontweight='bold', fontsize=11)
             
             plt.tight_layout()
             st.pyplot(fig)
@@ -471,6 +515,6 @@ col1, col2, col3 = st.columns(3)
 with col1:
     st.markdown(f"🕒 Última: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
 with col2:
-    st.markdown(f"⏱️ Refresh: 1 minuto")
+    st.markdown(f"⏱️ Refresh: 30 minutos")
 with col3:
     st.markdown(f"🔄 Ciclo: {st.session_state.refresh_count}")
