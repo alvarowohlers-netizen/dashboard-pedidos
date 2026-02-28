@@ -1,5 +1,5 @@
 import streamlit as st
-import pandas as as pd
+import pandas as pd  # ← CORRIGIDO (tinha "as as")
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
