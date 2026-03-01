@@ -23,7 +23,7 @@ st.set_page_config(
 )
 
 # ============================================================================
-# FUNÇÃO PARA OBTER HORÁRIO BRASILEIRO (UTC-3) - FORÇANDO CORRETAMENTE
+# FUNÇÃO PARA OBTER HORÁRIO BRASILEIRO (UTC-3)
 # ============================================================================
 def horario_brasil():
     """
@@ -34,7 +34,7 @@ def horario_brasil():
     return utc_now.astimezone(fuso_sp)
 
 # ============================================================================
-# FUNÇÃO PARA OBTER A HORA ATUAL NO BRASIL (CORRIGIDA)
+# FUNÇÃO PARA OBTER A HORA ATUAL NO BRASIL
 # ============================================================================
 def hora_atual_brasil():
     """
@@ -256,37 +256,56 @@ def ordenar_tipo_limite(tipos):
     return sorted(tipos, key=lambda x: ordem.get(x, 999))
 
 # ============================================================================
-# FUNÇÃO PARA PROCESSAR DADOS DE FATURAMENTO (SIMPLIFICADA E CORRIGIDA)
+# FUNÇÃO PARA PROCESSAR DADOS DE FATURAMENTO (CORRIGIDA)
 # ============================================================================
 def processar_dados_faturamento(df, nome):
     """
     Processa dados de faturamento e filtra pela hora atual de Brasília
+    Versão corrigida com tratamento de erros
     """
     if df is None or len(df) == 0:
+        st.warning(f"⚠️ {nome}: DataFrame vazio")
         return None
     
-    # Garantir colunas numéricas
-    colunas_numericas = ['FATURADOS', 'EXPEDIDOS', 'INCLUIDOS', 'APROVADOS']
-    for coluna in colunas_numericas:
-        if coluna in df.columns:
-            df[coluna] = pd.to_numeric(df[coluna], errors='coerce')
-    
-    # Extrair HORA do PERIODO (formato "HH:00")
-    df['HORA'] = df['PERIODO'].str.extract('(\d+)').astype(int)
-    
-    # OBTER HORA ATUAL DE BRASÍLIA
-    hora_atual_br = hora_atual_brasil()
-    
-    # DEBUG - mostrar no dashboard (remover depois)
-    st.sidebar.write(f"🔍 DEBUG - {nome}: Hora atual Brasília: {hora_atual_br}")
-    st.sidebar.write(f"🔍 DEBUG - {nome}: Horas disponíveis: {sorted(df['HORA'].unique())}")
-    
-    # FILTRO CRÍTICO: Manter apenas horas até a hora atual de Brasília
-    df = df[df['HORA'] <= hora_atual_br]
-    
-    df = df.sort_values('HORA')
-    
-    return df
+    try:
+        # Garantir colunas numéricas
+        colunas_numericas = ['FATURADOS', 'EXPEDIDOS', 'INCLUIDOS', 'APROVADOS']
+        for coluna in colunas_numericas:
+            if coluna in df.columns:
+                df[coluna] = pd.to_numeric(df[coluna], errors='coerce').fillna(0)
+        
+        # Verificar se PERIODO existe
+        if 'PERIODO' not in df.columns:
+            st.error(f"❌ {nome}: Coluna PERIODO não encontrada")
+            return None
+        
+        # Extrair HORA do PERIODO (formato "HH:00") - VERSÃO CORRIGIDA
+        df['HORA_STR'] = df['PERIODO'].astype(str).str.extract(r'(\d{2})')[0]
+        df['HORA'] = pd.to_numeric(df['HORA_STR'], errors='coerce')
+        
+        # Remover linhas com hora inválida
+        df = df.dropna(subset=['HORA'])
+        df['HORA'] = df['HORA'].astype(int)
+        
+        if len(df) == 0:
+            st.warning(f"⚠️ {nome}: Nenhuma hora válida encontrada")
+            return None
+        
+        # OBTER HORA ATUAL DE BRASÍLIA
+        hora_atual_br = hora_atual_brasil()
+        
+        # FILTRO: Manter apenas horas até a hora atual de Brasília
+        df_filtrado = df[df['HORA'] <= hora_atual_br].copy()
+        
+        st.sidebar.write(f"🔍 {nome}: Horas disponíveis: {sorted(df['HORA'].unique())}")
+        st.sidebar.write(f"🔍 {nome}: Hora atual Brasília: {hora_atual_br}")
+        st.sidebar.write(f"🔍 {nome}: Registros após filtro: {len(df_filtrado)}")
+        
+        return df_filtrado.sort_values('HORA')
+        
+    except Exception as e:
+        st.error(f"❌ Erro processando {nome}: {str(e)}")
+        return None
 
 # ============================================================================
 # CRIAÇÃO DAS ABAS
@@ -696,294 +715,116 @@ with tab1:
         st.error("❌ Erro ao conectar com a API de pedidos")
 
 # ============================================================================
-# ABA 2: FATURAMENTO (COM FILTROS PARA TRF E DIST) - VERSÃO SIMPLIFICADA
+# ABA 2: FATURAMENTO (VERSÃO CORRIGIDA)
 # ============================================================================
 with tab2:
     st.markdown('<p class="section-header">💰 FATURAMENTO (COM FILTRO DE CANAIS)</p>', unsafe_allow_html=True)
     
-    # OBTER HORA ATUAL DE BRASÍLIA (MOSTRAR PARA CONFIRMAÇÃO)
+    # OBTER HORA ATUAL DE BRASÍLIA
     hora_atual_br = hora_atual_brasil()
     
     st.success(f"🕒 HORA ATUAL DE BRASÍLIA: {hora_atual_br:02d}:00")
-    st.info(f"📊 Exibindo dados apenas até as {hora_atual_br:02d}:00")
     
     with st.spinner("📡 Consultando APIs de faturamento..."):
-        # Consultar APIs para cada canal
-        dados_todos = consultar_api_faturamento(None)      # Todos os canais
-        dados_trf = consultar_api_faturamento("TRF")       # Apenas TRF
-        dados_dist = consultar_api_faturamento("DIST")     # Apenas DIST
+        dados_todos = consultar_api_faturamento(None)
+        dados_trf = consultar_api_faturamento("TRF")
+        dados_dist = consultar_api_faturamento("DIST")
     
-    # Dicionário para armazenar DataFrames
     dfs = {}
     
-    # Processar dados de cada canal
+    # Processar cada canal
     for nome, resultado in [("TODOS", dados_todos), ("TRF", dados_trf), ("DIST", dados_dist)]:
         if resultado["sucesso"] and resultado["dados"]:
             df = pd.DataFrame(resultado["dados"])
             dfs[nome] = processar_dados_faturamento(df, nome)
         else:
-            # Criar dados de exemplo apenas até hora atual de Brasília
-            st.warning(f"⚠️ API {nome} não disponível - usando dados de exemplo até {hora_atual_br}:00")
-            horas = list(range(hora_atual_br + 1))
-            dados_exemplo = []
-            for hora in horas:
-                base = 1000 if nome == "TODOS" else (200 if nome == "TRF" else 150)
-                dados_exemplo.append({
-                    'FATURADOS': np.random.randint(base, base * 2),
-                    'EXPEDIDOS': np.random.randint(base//3, base//2),
-                    'INCLUIDOS': np.random.randint(base//2, base),
-                    'APROVADOS': np.random.randint(base//2, base),
-                    'PERIODO': f"{hora:02d}:00",
-                    'HORA': hora
-                })
-            dfs[nome] = pd.DataFrame(dados_exemplo)
+            st.warning(f"⚠️ API {nome} não disponível")
     
-    # Verificar se temos dados para processar
-    if dfs.get("TODOS") is not None and dfs.get("TRF") is not None and dfs.get("DIST") is not None:
+    # Verificar se temos dados
+    if dfs.get("TODOS") is not None and not dfs["TODOS"].empty:
         
-        # FILTROS INTERATIVOS
         st.markdown("### 🔍 FILTROS")
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         
         with col1:
-            incluir_trf = st.checkbox("Incluir TRANSFERÊNCIA (TRF)", value=True, key="incluir_trf")
+            incluir_trf = st.checkbox("Incluir TRANSFERÊNCIA (TRF)", value=True)
         with col2:
-            incluir_dist = st.checkbox("Incluir DISTRIBUIÇÃO (DIST)", value=True, key="incluir_dist")
-        with col3:
-            st.markdown("##### 💡 VENDA DO DIA = TODOS - (TRF + DIST)")
+            incluir_dist = st.checkbox("Incluir DISTRIBUIÇÃO (DIST)", value=True)
         
-        st.markdown("---")
+        # Preparar dados base
+        df_base = dfs["TODOS"].copy()
+        df_base = df_base.rename(columns={'FATURADOS': 'TODOS'})
         
-        # Obter horas comuns
-        horas_comuns = sorted(set(dfs["TODOS"]['HORA']).intersection(
-            set(dfs["TRF"]['HORA'])).intersection(set(dfs["DIST"]['HORA'])))
-        
-        if not horas_comuns:
-            st.error("❌ Não há horas comuns entre os datasets")
+        # Adicionar TRF se disponível e selecionado
+        if incluir_trf and dfs.get("TRF") is not None and not dfs["TRF"].empty:
+            df_trf = dfs["TRF"][['HORA', 'FATURADOS']].rename(columns={'FATURADOS': 'TRF'})
+            df_base = df_base.merge(df_trf, on='HORA', how='left').fillna(0)
         else:
-            st.success(f"✅ Horas disponíveis: {horas_comuns}")
-            
-            # Filtrar dados pelas horas comuns
-            df_todos_filtrado = dfs["TODOS"][dfs["TODOS"]['HORA'].isin(horas_comuns)].copy()
-            df_trf_filtrado = dfs["TRF"][dfs["TRF"]['HORA'].isin(horas_comuns)].copy()
-            df_dist_filtrado = dfs["DIST"][dfs["DIST"]['HORA'].isin(horas_comuns)].copy()
-            
-            hora_final = max(horas_comuns)
-            
-            # Calcular totais com base nos filtros
-            total_todos = df_todos_filtrado['FATURADOS'].sum()
-            total_trf = df_trf_filtrado['FATURADOS'].sum() if incluir_trf else 0
-            total_dist = df_dist_filtrado['FATURADOS'].sum() if incluir_dist else 0
-            total_venda = total_todos - total_trf - total_dist
-            
-            # Criar DataFrame consolidado
-            df_consolidado = pd.merge(
-                df_todos_filtrado[['HORA', 'PERIODO', 'FATURADOS']].rename(columns={'FATURADOS': 'TODOS'}),
-                df_trf_filtrado[['HORA', 'FATURADOS']].rename(columns={'FATURADOS': 'TRF'}),
-                on='HORA',
-                how='left'
-            ).fillna(0)
-            
-            df_consolidado = pd.merge(
-                df_consolidado,
-                df_dist_filtrado[['HORA', 'FATURADOS']].rename(columns={'FATURADOS': 'DIST'}),
-                on='HORA',
-                how='left'
-            ).fillna(0)
-            
-            # Calcular VENDA e LÍQUIDO
-            df_consolidado['VENDA'] = df_consolidado['TODOS'] - df_consolidado['TRF'] - df_consolidado['DIST']
-            
-            # Aplicar filtros para o líquido
-            trf_para_liquido = df_consolidado['TRF'] if incluir_trf else 0
-            dist_para_liquido = df_consolidado['DIST'] if incluir_dist else 0
-            df_consolidado['LIQUIDO'] = df_consolidado['TODOS'] - trf_para_liquido - dist_para_liquido
-            
-            df_consolidado['ACUMULADO'] = df_consolidado['LIQUIDO'].cumsum()
-            
-            # MÉTRICAS PRINCIPAIS
-            st.markdown("### 📊 MÉTRICAS")
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("💰 TOTAL GERAL", formatar_br(total_todos))
-            with col2:
-                st.metric("🔄 TRANSFERÊNCIA", formatar_br(total_trf) if incluir_trf else "0 (filtrado)")
-            with col3:
-                st.metric("📦 DISTRIBUIÇÃO", formatar_br(total_dist) if incluir_dist else "0 (filtrado)")
-            with col4:
-                cor_venda = "green" if total_venda >= 0 else "red"
-                st.markdown(f"""
-                <div style="background: white; padding: 1rem; border-radius: 10px; border-left: 5px solid {cor_venda};">
-                    <div style="font-size: 2rem; font-weight: bold;">{formatar_br(total_venda)}</div>
-                    <div>💵 VENDA DO DIA</div>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            st.markdown("---")
-            
-            # GRÁFICO 1: COMPARATIVO POR HORA (COM TODOS OS CANAIS)
-            st.markdown('<p class="section-header">📊 COMPARATIVO POR HORA - TODOS OS CANAIS</p>', unsafe_allow_html=True)
-            
-            fig = go.Figure()
-            
-            # Barras para cada canal
-            fig.add_trace(go.Bar(
-                name='TODOS',
-                x=df_consolidado['HORA'],
-                y=df_consolidado['TODOS'],
-                marker_color='blue',
-                text=[formatar_br(v) for v in df_consolidado['TODOS']],
-                textposition='inside',
-                hovertemplate='Hora: %{x}:00<br>TODOS: %{y:,.0f}'.replace(",", ".") + '<extra></extra>'
-            ))
-            
-            if incluir_trf:
-                fig.add_trace(go.Bar(
-                    name='TRF',
-                    x=df_consolidado['HORA'],
-                    y=df_consolidado['TRF'],
-                    marker_color='red',
-                    text=[formatar_br(v) for v in df_consolidado['TRF']],
-                    textposition='inside',
-                    hovertemplate='Hora: %{x}:00<br>TRF: %{y:,.0f}'.replace(",", ".") + '<extra></extra>'
-                ))
-            
-            if incluir_dist:
-                fig.add_trace(go.Bar(
-                    name='DIST',
-                    x=df_consolidado['HORA'],
-                    y=df_consolidado['DIST'],
-                    marker_color='orange',
-                    text=[formatar_br(v) for v in df_consolidado['DIST']],
-                    textposition='inside',
-                    hovertemplate='Hora: %{x}:00<br>DIST: %{y:,.0f}'.replace(",", ".") + '<extra></extra>'
-                ))
-            
-            fig.add_trace(go.Bar(
-                name='VENDA',
-                x=df_consolidado['HORA'],
-                y=df_consolidado['VENDA'],
-                marker_color='green',
-                text=[formatar_br(v) for v in df_consolidado['VENDA']],
-                textposition='inside',
-                hovertemplate='Hora: %{x}:00<br>VENDA: %{y:,.0f}'.replace(",", ".") + '<extra></extra>'
-            ))
-            
-            fig.update_layout(
-                title=f'Faturamento por Hora - Até {hora_final:02d}:00 (Horário Brasília)',
-                xaxis_title='Hora do Dia',
-                yaxis_title='Quantidade',
-                barmode='group',
-                height=500,
-                template='plotly_white',
-                xaxis = dict(
-                    tickmode = 'linear',
-                    tick0 = 0,
-                    dtick = 1
-                )
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # GRÁFICO 2: VENDA LÍQUIDA
-            st.markdown('<p class="section-header">📈 VENDA LÍQUIDA (com filtros aplicados)</p>', unsafe_allow_html=True)
-            
-            fig = go.Figure()
-            
-            cores = ['green' if x >= 0 else 'red' for x in df_consolidado['LIQUIDO']]
-            
-            fig.add_trace(go.Bar(
-                x=df_consolidado['HORA'],
-                y=df_consolidado['LIQUIDO'],
-                marker_color=cores,
-                text=[formatar_br(v) for v in df_consolidado['LIQUIDO']],
-                textposition='outside',
-                hovertemplate='Hora: %{x}:00<br>Líquido: %{y:,.0f}'.replace(",", ".") + '<extra></extra>'
-            ))
-            
-            fig.update_layout(
-                title='Venda Líquida por Hora',
-                xaxis_title='Hora do Dia',
-                yaxis_title='Quantidade',
-                height=400,
-                template='plotly_white',
-                xaxis = dict(
-                    tickmode = 'linear',
-                    tick0 = 0,
-                    dtick = 1
-                )
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # GRÁFICO 3: ACUMULADO
-            st.markdown('<p class="section-header">📈 VENDA ACUMULADA</p>', unsafe_allow_html=True)
-            
-            fig = go.Figure()
-            
-            fig.add_trace(go.Scatter(
-                x=df_consolidado['HORA'],
-                y=df_consolidado['ACUMULADO'],
-                mode='lines+markers+text',
-                line=dict(color='blue', width=4),
-                marker=dict(size=10, color='red'),
-                text=[formatar_br(v) for v in df_consolidado['ACUMULADO']],
-                textposition='top center',
-                hovertemplate='Hora: %{x}:00<br>Acumulado: %{y:,.0f}'.replace(",", ".") + '<extra></extra>'
-            ))
-            
-            fig.update_layout(
-                title='Venda Acumulada',
-                xaxis_title='Hora do Dia',
-                yaxis_title='Quantidade Acumulada',
-                height=400,
-                template='plotly_white',
-                xaxis = dict(
-                    tickmode = 'linear',
-                    tick0 = 0,
-                    dtick = 1
-                )
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # TABELA DE DADOS
-            st.markdown('<p class="section-header">📋 DADOS DE FATURAMENTO</p>', unsafe_allow_html=True)
-            
-            df_display = df_consolidado.copy()
-            df_display['PERIODO'] = df_display['HORA'].apply(lambda x: f"{int(x):02d}:00")
-            df_display['TODOS'] = df_display['TODOS'].apply(formatar_br)
-            df_display['TRF'] = df_display['TRF'].apply(formatar_br)
-            df_display['DIST'] = df_display['DIST'].apply(formatar_br)
-            df_display['VENDA'] = df_display['VENDA'].apply(formatar_br)
-            df_display['LÍQUIDO'] = df_display['LIQUIDO'].apply(formatar_br)
-            df_display['ACUMULADO'] = df_display['ACUMULADO'].apply(formatar_br)
-            
-            st.dataframe(
-                df_display[['PERIODO', 'TODOS', 'TRF', 'DIST', 'VENDA', 'LÍQUIDO', 'ACUMULADO']],
-                use_container_width=True,
-                height=400
-            )
-            
-            # Download
-            csv = df_consolidado.to_csv(index=False)
-            st.download_button(
-                label="📥 Download Dados de Faturamento",
-                data=csv,
-                file_name=f"faturamento_{hora_br.strftime('%Y%m%d_%H%M')}.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
-            
-            st.markdown("---")
-            st.info(f"📊 Período analisado: 00:00 até {hora_final:02d}:00 (horário de Brasília)")
-            
+            df_base['TRF'] = 0
+        
+        # Adicionar DIST se disponível e selecionado
+        if incluir_dist and dfs.get("DIST") is not None and not dfs["DIST"].empty:
+            df_dist = dfs["DIST"][['HORA', 'FATURADOS']].rename(columns={'FATURADOS': 'DIST'})
+            df_base = df_base.merge(df_dist, on='HORA', how='left').fillna(0)
+        else:
+            df_base['DIST'] = 0
+        
+        # Calcular vendas
+        df_base['VENDA'] = df_base['TODOS'] - df_base['TRF'] - df_base['DIST']
+        df_base['ACUMULADO'] = df_base['VENDA'].cumsum()
+        
+        # Métricas
+        st.markdown("### 📊 MÉTRICAS")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("💰 TOTAL GERAL", formatar_br(df_base['TODOS'].sum()))
+        with col2:
+            st.metric("🔄 TRANSFERÊNCIA", formatar_br(df_base['TRF'].sum()))
+        with col3:
+            st.metric("📦 DISTRIBUIÇÃO", formatar_br(df_base['DIST'].sum()))
+        with col4:
+            st.metric("💵 VENDA DO DIA", formatar_br(df_base['VENDA'].sum()))
+        
+        # Gráfico de barras
+        st.markdown("### 📊 FATURAMENTO POR HORA")
+        fig = go.Figure()
+        
+        fig.add_trace(go.Bar(name='TODOS', x=df_base['HORA'], y=df_base['TODOS'], 
+                            marker_color='blue', text=df_base['TODOS'].apply(formatar_br)))
+        
+        if incluir_trf:
+            fig.add_trace(go.Bar(name='TRF', x=df_base['HORA'], y=df_base['TRF'], 
+                                marker_color='red', text=df_base['TRF'].apply(formatar_br)))
+        
+        if incluir_dist:
+            fig.add_trace(go.Bar(name='DIST', x=df_base['HORA'], y=df_base['DIST'], 
+                                marker_color='orange', text=df_base['DIST'].apply(formatar_br)))
+        
+        fig.add_trace(go.Bar(name='VENDA', x=df_base['HORA'], y=df_base['VENDA'], 
+                            marker_color='green', text=df_base['VENDA'].apply(formatar_br)))
+        
+        fig.update_layout(barmode='group', height=500, template='plotly_white',
+                         xaxis=dict(tickmode='linear', tick0=0, dtick=1))
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Tabela
+        st.markdown("### 📋 DADOS")
+        df_display = df_base.copy()
+        for col in ['TODOS', 'TRF', 'DIST', 'VENDA', 'ACUMULADO']:
+            df_display[col] = df_display[col].apply(formatar_br)
+        
+        st.dataframe(df_display[['HORA', 'TODOS', 'TRF', 'DIST', 'VENDA', 'ACUMULADO']], 
+                    use_container_width=True, height=400)
+        
+        st.info(f"📊 Período: 00:00 até {df_base['HORA'].max():02d}:00")
+    
     else:
-        st.error("❌ Não foi possível processar dados de furamento")
+        st.error("❌ Não foi possível carregar dados de faturamento")
 
 # ============================================================================
-# RODAPÉ COM HORÁRIO BRASILEIRO
+# RODAPÉ
 # ============================================================================
 st.markdown("---")
 hora_br_rodape = horario_brasil()
