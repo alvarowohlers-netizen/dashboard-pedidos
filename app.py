@@ -8,7 +8,7 @@ import json
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -22,12 +22,24 @@ st.set_page_config(
 )
 
 # ============================================================================
+# FUNÇÃO PARA OBTER HORÁRIO BRASILEIRO (UTC-3)
+# ============================================================================
+def horario_brasil():
+    fuso_br = timezone(timedelta(hours=-3))
+    return datetime.now(timezone.utc).astimezone(fuso_br)
+
+# ============================================================================
+# FUNÇÃO PARA FORMATAR NÚMEROS NO PADRÃO BRASILEIRO
+# ============================================================================
+def formatar_br(valor):
+    return f"{valor:,.0f}".replace(",", ".")
+
+# ============================================================================
 # META REFRESH - 30 MINUTOS (1800 SEGUNDOS)
 # ============================================================================
 st.markdown("""
 <meta http-equiv="refresh" content="1800">
 <style>
-    /* CSS DAS PRIMEIRAS VERSÕES */
     @keyframes marquee {
         0% { transform: translateX(100%); }
         50% { transform: translateX(0%); }
@@ -101,15 +113,17 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# CONTROLE DE ATUALIZAÇÃO
+# CONTROLE DE ATUALIZAÇÃO COM HORÁRIO BRASILEIRO
 # ============================================================================
 if 'refresh_count' not in st.session_state:
     st.session_state.refresh_count = 0
 st.session_state.refresh_count += 1
 
+hora_br = horario_brasil()
+
 st.markdown(f"""
 <div class="refresh-box">
-    🔄 AUTO-REFRESH ATIVO | Atualização #{st.session_state.refresh_count} | {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}
+    🔄 AUTO-REFRESH ATIVO | Atualização #{st.session_state.refresh_count} | {hora_br.strftime('%d/%m/%Y %H:%M:%S')}
 </div>
 """, unsafe_allow_html=True)
 
@@ -214,7 +228,7 @@ if resultado["sucesso"] and resultado["dados"]:
     df_abertos = df_renamed[df_renamed['TIPO_PEDIDO'] == 'ABERTOS'].copy()
     
     # ============================================================================
-    # MÉTRICAS
+    # MÉTRICAS COM FORMATAÇÃO BRASILEIRA
     # ============================================================================
     st.markdown("---")
     
@@ -226,16 +240,16 @@ if resultado["sucesso"] and resultado["dados"]:
             <div class="metric-value">{len(df_abertos):,}</div>
             <div class="metric-label">📦 Pedidos Abertos</div>
         </div>
-        """, unsafe_allow_html=True)
+        """.replace(",", "."), unsafe_allow_html=True)
     
     with col2:
         total_pecas = df_abertos['QT_PECAS'].sum()
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-value">{total_pecas:,}</div>
+            <div class="metric-value">{total_pecas:,.0f}</div>
             <div class="metric-label">🧩 Total de Peças</div>
         </div>
-        """, unsafe_allow_html=True)
+        """.replace(",", "."), unsafe_allow_html=True)
     
     with col3:
         media = total_pecas / len(df_abertos) if len(df_abertos) > 0 else 0
@@ -249,10 +263,10 @@ if resultado["sucesso"] and resultado["dados"]:
     with col4:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-value">{df_abertos['STATUS'].nunique()}</div>
+            <div class="metric-value">{df_abertos['STATUS'].nunique():,}</div>
             <div class="metric-label">🔄 Status Diferentes</div>
         </div>
-        """, unsafe_allow_html=True)
+        """.replace(",", "."), unsafe_allow_html=True)
     
     st.markdown("---")
     
@@ -262,7 +276,7 @@ if resultado["sucesso"] and resultado["dados"]:
     if len(df_abertos) > 0:
         
         # ============================================================================
-        # GRÁFICO 1.A - PEDIDOS POR TIPO DE LIMITE (CORRIGIDO - CONTA PEDIDOS)
+        # GRÁFICO 1.A - PEDIDOS POR TIPO DE LIMITE
         # ============================================================================
         st.markdown('<p class="section-header">📊 GRÁFICO 1.A - PEDIDOS POR TIPO DE LIMITE (BARRAS EMPILHADAS)</p>', unsafe_allow_html=True)
         
@@ -273,25 +287,25 @@ if resultado["sucesso"] and resultado["dados"]:
             ordered=True
         )
         
-        # CRIAR TABELA PIVOT PARA CONTAGEM DE PEDIDOS (NÃO SOMAR!)
+        # Tabela pivot para contagem de pedidos
         pivot_count = pd.crosstab(
             df_abertos['TIPO_LIMITE'],
             df_abertos['TIPO_ITEM']
         ).fillna(0).reset_index()
         
-        # Criar gráfico interativo com Plotly
+        # Criar gráfico interativo
         fig = go.Figure()
         
-        for item in pivot_count.columns[1:]:  # Pula a primeira coluna (TIPO_LIMITE)
+        for item in pivot_count.columns[1:]:
             fig.add_trace(go.Bar(
                 name=item,
                 x=pivot_count['TIPO_LIMITE'],
                 y=pivot_count[item],
-                text=pivot_count[item].apply(lambda x: f'{x:,.0f}'),
+                text=[formatar_br(v) for v in pivot_count[item]],
                 textposition='inside',
                 textfont=dict(color='white', size=12, family='Arial Black'),
                 hovertemplate='<b>%{x}</b><br>' +
-                              f'{item}: %{{y:,.0f}} pedidos<br>' +
+                              f'{item}: %{{y:,.0f}} pedidos'.replace(",", ".") +
                               '<extra></extra>'
             ))
         
@@ -316,11 +330,11 @@ if resultado["sucesso"] and resultado["dados"]:
         st.plotly_chart(fig, use_container_width=True)
         
         # ============================================================================
-        # GRÁFICO 1.B - PEÇAS POR TIPO DE LIMITE (COM LINHA DE MÉDIA)
+        # GRÁFICO 1.B - PEÇAS POR TIPO DE LIMITE (COM LINHA DE MÉDIA CORRIGIDA)
         # ============================================================================
         st.markdown('<p class="section-header">📊 GRÁFICO 1.B - PEÇAS POR TIPO DE LIMITE (COM LINHA DE MÉDIA PEÇAS/PEDIDO)</p>', unsafe_allow_html=True)
         
-        # Preparar dados
+        # Tabela pivot para quantidade de peças
         pivot_pecas = pd.crosstab(
             df_abertos['TIPO_LIMITE'],
             df_abertos['TIPO_ITEM'],
@@ -328,14 +342,15 @@ if resultado["sucesso"] and resultado["dados"]:
             aggfunc='sum'
         ).fillna(0).reset_index()
         
-        # Calcular médias
-        totais_pedidos = df_abertos.groupby('TIPO_LIMITE')['COUNT_ENTREGA'].sum()
-        totais_pecas = pivot_pecas.set_index('TIPO_LIMITE').sum(axis=1)
+        # Calcular totais de pedidos e peças por tipo_limite
+        totais_pedidos_limite = df_abertos.groupby('TIPO_LIMITE').size()
+        totais_pecas_limite = df_abertos.groupby('TIPO_LIMITE')['QT_PECAS'].sum()
         
+        # Calcular média de peças por pedido (CORRIGIDO)
         medias = []
         for tipo in pivot_pecas['TIPO_LIMITE']:
-            if totais_pedidos[tipo] > 0:
-                media = totais_pecas[tipo] / totais_pedidos[tipo]
+            if tipo in totais_pedidos_limite.index and totais_pedidos_limite[tipo] > 0:
+                media = totais_pecas_limite[tipo] / totais_pedidos_limite[tipo]
                 medias.append(round(media, 1))
             else:
                 medias.append(0)
@@ -350,17 +365,17 @@ if resultado["sucesso"] and resultado["dados"]:
                     name=item,
                     x=pivot_pecas['TIPO_LIMITE'],
                     y=pivot_pecas[item],
-                    text=pivot_pecas[item].apply(lambda x: f'{x:,.0f}'),
+                    text=[formatar_br(v) for v in pivot_pecas[item]],
                     textposition='inside',
                     textfont=dict(color='white', size=11, family='Arial Black'),
                     hovertemplate='<b>%{x}</b><br>' +
-                                  f'{item}: %{{y:,.0f}} peças<br>' +
+                                  f'{item}: %{{y:,.0f}} peças'.replace(",", ".") +
                                   '<extra></extra>'
                 ),
                 secondary_y=False
             )
         
-        # Adicionar linha de média
+        # Adicionar linha de média (CORRIGIDA)
         fig.add_trace(
             go.Scatter(
                 name='Média Peças/Pedido',
@@ -369,11 +384,11 @@ if resultado["sucesso"] and resultado["dados"]:
                 mode='lines+markers+text',
                 line=dict(color='red', width=4),
                 marker=dict(size=12, color='red'),
-                text=[f'{m:.1f}' for m in medias],
+                text=[f'{m:.1f}'.replace('.', ',') for m in medias],
                 textposition='top center',
                 textfont=dict(color='red', size=12, family='Arial Black'),
                 hovertemplate='<b>%{x}</b><br>' +
-                              'Média: %{y:.1f} peças/pedido<br>' +
+                              'Média: %{y:.1f} peças/pedido'.replace('.', ',') +
                               '<extra></extra>'
             ),
             secondary_y=True
@@ -395,7 +410,8 @@ if resultado["sucesso"] and resultado["dados"]:
         
         fig.update_xaxes(title_text='Tipo de Limite')
         fig.update_yaxes(title_text='Quantidade de Peças', tickformat=",.0f", secondary_y=False)
-        fig.update_yaxes(title_text='Média de Peças por Pedido', secondary_y=True, range=[0, max(medias) * 1.3 if medias else 1])
+        fig.update_yaxes(title_text='Média de Peças por Pedido', secondary_y=True, 
+                        range=[0, max(medias) * 1.3 if medias and max(medias) > 0 else 1])
         
         st.plotly_chart(fig, use_container_width=True)
         
@@ -416,14 +432,13 @@ if resultado["sucesso"] and resultado["dados"]:
             orientation='h',
             title='Top 10 Status mais frequentes',
             labels={'QUANTIDADE': 'Quantidade de Pedidos', 'STATUS': 'Status'},
-            text='QUANTIDADE',
+            text=status_count['QUANTIDADE'].apply(formatar_br),
             color_discrete_sequence=['#4ECDC4']
         )
         
         fig.update_traces(
-            texttemplate='%{text:,.0f}',
             textposition='outside',
-            hovertemplate='<b>%{y}</b><br>Pedidos: %{x:,.0f}<extra></extra>'
+            hovertemplate='<b>%{y}</b><br>Pedidos: %{x:,.0f}'.replace(",", ".")
         )
         
         fig.update_layout(height=400, template='plotly_white')
@@ -445,13 +460,13 @@ if resultado["sucesso"] and resultado["dados"]:
             orientation='h',
             title='Top 10 - Média de Peças por Status',
             labels={'MEDIA': 'Média de Peças', 'STATUS': 'Status'},
-            text=status_media['MEDIA'].apply(lambda x: f'{x:.1f}'),
+            text=status_media['MEDIA'].apply(lambda x: f'{x:.1f}'.replace('.', ',')),
             color_discrete_sequence=['#FF6B6B']
         )
         
         fig.update_traces(
             textposition='outside',
-            hovertemplate='<b>%{y}</b><br>Média: %{x:.1f} peças<extra></extra>'
+            hovertemplate='<b>%{y}</b><br>Média: %{x:.1f} peças'.replace('.', ',')
         )
         
         fig.update_layout(height=400, template='plotly_white')
@@ -483,7 +498,7 @@ if resultado["sucesso"] and resultado["dados"]:
             fig.update_traces(
                 textposition='inside',
                 textinfo='percent+label',
-                hovertemplate='<b>%{label}</b><br>Pedidos: %{value:,.0f}<br>Percentual: %{percent}<extra></extra>'
+                hovertemplate='<b>%{label}</b><br>Pedidos: %{value:,.0f}'.replace(",", ".") + '<br>Percentual: %{percent}<extra></extra>'
             )
             
             fig.update_layout(height=500)
@@ -511,7 +526,7 @@ if resultado["sucesso"] and resultado["dados"]:
             fig.update_traces(
                 textposition='inside',
                 textinfo='percent+label',
-                hovertemplate='<b>%{label}</b><br>Peças: %{value:,.0f}<br>Percentual: %{percent}<extra></extra>'
+                hovertemplate='<b>%{label}</b><br>Peças: %{value:,.0f}'.replace(",", ".") + '<br>Percentual: %{percent}<extra></extra>'
             )
             
             fig.update_layout(height=500)
@@ -539,14 +554,13 @@ if resultado["sucesso"] and resultado["dados"]:
                 y='QUANTIDADE',
                 title='Pedidos por Tipo Limite',
                 labels={'QUANTIDADE': 'Quantidade', 'TIPO_LIMITE': 'Tipo Limite'},
-                text='QUANTIDADE',
+                text=limite_count['QUANTIDADE'].apply(formatar_br),
                 color_discrete_sequence=['#45B7D1']
             )
             
             fig.update_traces(
-                texttemplate='%{text:,.0f}',
                 textposition='outside',
-                hovertemplate='<b>%{x}</b><br>Pedidos: %{y:,.0f}<extra></extra>'
+                hovertemplate='<b>%{x}</b><br>Pedidos: %{y:,.0f}'.replace(",", ".")
             )
             
             fig.update_layout(height=400, template='plotly_white')
@@ -570,13 +584,13 @@ if resultado["sucesso"] and resultado["dados"]:
                 y='QUANTIDADE',
                 title='Peças por Tipo Limite',
                 labels={'QUANTIDADE': 'Quantidade', 'TIPO_LIMITE': 'Tipo Limite'},
-                text=limite_pecas['QUANTIDADE'].apply(lambda x: f'{x:,.0f}'),
+                text=limite_pecas['QUANTIDADE'].apply(formatar_br),
                 color_discrete_sequence=['#FF6B6B']
             )
             
             fig.update_traces(
                 textposition='outside',
-                hovertemplate='<b>%{x}</b><br>Peças: %{y:,.0f}<extra></extra>'
+                hovertemplate='<b>%{x}</b><br>Peças: %{y:,.0f}'.replace(",", ".")
             )
             
             fig.update_layout(height=400, template='plotly_white')
@@ -621,7 +635,7 @@ if resultado["sucesso"] and resultado["dados"]:
         st.download_button(
             label="📥 Download CSV",
             data=csv,
-            file_name=f"pedidos_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            file_name=f"pedidos_{hora_br.strftime('%Y%m%d_%H%M')}.csv",
             mime="text/csv",
             use_container_width=True
         )
@@ -629,11 +643,11 @@ if resultado["sucesso"] and resultado["dados"]:
         # Estatísticas da tabela
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("📊 Registros", len(df_filtrado))
+            st.metric("📊 Registros", formatar_br(len(df_filtrado)))
         with col2:
-            st.metric("🧩 Total Peças", df_filtrado['QT_PECAS'].sum())
+            st.metric("🧩 Total Peças", formatar_br(df_filtrado['QT_PECAS'].sum()))
         with col3:
-            st.metric("📈 Média Peças", f"{df_filtrado['QT_PECAS'].mean():.1f}")
+            st.metric("📈 Média Peças", f"{df_filtrado['QT_PECAS'].mean():.1f}".replace('.', ','))
     
     else:
         st.warning("⚠️ Nenhum pedido aberto encontrado")
@@ -642,12 +656,13 @@ else:
     st.error("❌ Erro ao conectar com a API")
 
 # ============================================================================
-# RODAPÉ
+# RODAPÉ COM HORÁRIO BRASILEIRO
 # ============================================================================
 st.markdown("---")
+hora_br_rodape = horario_brasil()
 col1, col2, col3 = st.columns(3)
 with col1:
-    st.markdown(f"🕒 Última: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+    st.markdown(f"🕒 Última: {hora_br_rodape.strftime('%d/%m/%Y %H:%M:%S')}")
 with col2:
     st.markdown(f"⏱️ Refresh: 30 minutos")
 with col3:
