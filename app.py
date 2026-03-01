@@ -9,7 +9,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
-from pytz import timezone
+import pytz
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -23,24 +23,26 @@ st.set_page_config(
 )
 
 # ============================================================================
-# FUNÇÃO PARA OBTER HORÁRIO BRASILEIRO (UTC-3) - CORRIGIDA
+# FUNÇÃO PARA OBTER HORÁRIO BRASILEIRO (UTC-3) - FORÇANDO CORRETAMENTE
 # ============================================================================
 def horario_brasil():
     """
     Retorna o datetime atual no horário de São Paulo/Brasil (UTC-3)
     """
-    fuso_sp = timezone('America/Sao_Paulo')
-    return datetime.now(fuso_sp)
+    fuso_sp = pytz.timezone('America/Sao_Paulo')
+    utc_now = datetime.now(pytz.UTC)
+    return utc_now.astimezone(fuso_sp)
 
 # ============================================================================
-# FUNÇÃO PARA OBTER A HORA ATUAL NO BRASIL
+# FUNÇÃO PARA OBTER A HORA ATUAL NO BRASIL (CORRIGIDA)
 # ============================================================================
 def hora_atual_brasil():
     """
-    Retorna apenas a hora atual no horário de Brasília
+    Retorna apenas a hora atual no horário de Brasília (0-23)
     """
-    fuso_sp = timezone('America/Sao_Paulo')
-    return datetime.now(fuso_sp).hour
+    fuso_sp = pytz.timezone('America/Sao_Paulo')
+    agora = datetime.now(pytz.UTC).astimezone(fuso_sp)
+    return agora.hour
 
 # ============================================================================
 # FUNÇÃO PARA FORMATAR NÚMEROS NO PADRÃO BRASILEIRO
@@ -77,11 +79,6 @@ st.markdown("""
         display: inline-block;
         animation: marquee 20s linear infinite;
         padding-left: 100%;
-    }
-    
-    .marquee-header span:after {
-        content: " 📊 DASHBOARD DE PEDIDOS E FATURAMENTO - TV 📊 ";
-        margin-left: 50px;
     }
     
     .metric-card {
@@ -259,35 +256,35 @@ def ordenar_tipo_limite(tipos):
     return sorted(tipos, key=lambda x: ordem.get(x, 999))
 
 # ============================================================================
-# FUNÇÃO PARA PROCESSAR DADOS DE FATURAMENTO (CORRIGIDA COM FUSO BR)
+# FUNÇÃO PARA PROCESSAR DADOS DE FATURAMENTO (SIMPLIFICADA E CORRIGIDA)
 # ============================================================================
 def processar_dados_faturamento(df, nome):
     """
-    Processa dados de faturamento e garante hora no formato correto
+    Processa dados de faturamento e filtra pela hora atual de Brasília
     """
     if df is None or len(df) == 0:
         return None
-        
-    # Processar dados
+    
+    # Garantir colunas numéricas
     colunas_numericas = ['FATURADOS', 'EXPEDIDOS', 'INCLUIDOS', 'APROVADOS']
     for coluna in colunas_numericas:
         if coluna in df.columns:
             df[coluna] = pd.to_numeric(df[coluna], errors='coerce')
     
-    # Garantir coluna HORA
-    if 'HORA' not in df.columns:
-        df['HORA_EXTRAIDA'] = df['PERIODO'].str.extract('(\d+)')
-        df['HORA'] = pd.to_numeric(df['HORA_EXTRAIDA'], errors='coerce')
-        df = df.dropna(subset=['HORA'])
-        df['HORA'] = df['HORA'].astype(int)
+    # Extrair HORA do PERIODO (formato "HH:00")
+    df['HORA'] = df['PERIODO'].str.extract('(\d+)').astype(int)
     
-    df = df.sort_values('HORA')
-    
-    # Obter hora atual de Brasília
+    # OBTER HORA ATUAL DE BRASÍLIA
     hora_atual_br = hora_atual_brasil()
     
-    # Filtrar apenas horas até a hora atual de Brasília
+    # DEBUG - mostrar no dashboard (remover depois)
+    st.sidebar.write(f"🔍 DEBUG - {nome}: Hora atual Brasília: {hora_atual_br}")
+    st.sidebar.write(f"🔍 DEBUG - {nome}: Horas disponíveis: {sorted(df['HORA'].unique())}")
+    
+    # FILTRO CRÍTICO: Manter apenas horas até a hora atual de Brasília
     df = df[df['HORA'] <= hora_atual_br]
+    
+    df = df.sort_values('HORA')
     
     return df
 
@@ -297,7 +294,7 @@ def processar_dados_faturamento(df, nome):
 tab1, tab2 = st.tabs(["📦 PEDIDOS ABERTOS", "💰 FATURAMENTO"])
 
 # ============================================================================
-# ABA 1: PEDIDOS ABERTOS (CÓDIGO EXISTENTE)
+# ABA 1: PEDIDOS ABERTOS
 # ============================================================================
 with tab1:
     # Consultar API de pedidos
@@ -699,15 +696,16 @@ with tab1:
         st.error("❌ Erro ao conectar com a API de pedidos")
 
 # ============================================================================
-# ABA 2: FATURAMENTO (COM FILTROS PARA TRF E DIST) - CORRIGIDA COM FUSO BR
+# ABA 2: FATURAMENTO (COM FILTROS PARA TRF E DIST) - VERSÃO SIMPLIFICADA
 # ============================================================================
 with tab2:
     st.markdown('<p class="section-header">💰 FATURAMENTO (COM FILTRO DE CANAIS)</p>', unsafe_allow_html=True)
     
-    # OBTER HORA ATUAL DE BRASÍLIA (CORREÇÃO CRÍTICA!)
+    # OBTER HORA ATUAL DE BRASÍLIA (MOSTRAR PARA CONFIRMAÇÃO)
     hora_atual_br = hora_atual_brasil()
     
-    st.info(f"🕒 Horário de Brasília: {hora_atual_br:02d}:00 - Exibindo dados até esta hora")
+    st.success(f"🕒 HORA ATUAL DE BRASÍLIA: {hora_atual_br:02d}:00")
+    st.info(f"📊 Exibindo dados apenas até as {hora_atual_br:02d}:00")
     
     with st.spinner("📡 Consultando APIs de faturamento..."):
         # Consultar APIs para cada canal
@@ -725,8 +723,8 @@ with tab2:
             dfs[nome] = processar_dados_faturamento(df, nome)
         else:
             # Criar dados de exemplo apenas até hora atual de Brasília
-            st.info(f"⚠️ API {nome} não disponível - usando dados de exemplo até {hora_atual_br}:00")
-            horas = [h for h in range(hora_atual_br + 1)]
+            st.warning(f"⚠️ API {nome} não disponível - usando dados de exemplo até {hora_atual_br}:00")
+            horas = list(range(hora_atual_br + 1))
             dados_exemplo = []
             for hora in horas:
                 base = 1000 if nome == "TODOS" else (200 if nome == "TRF" else 150)
@@ -763,6 +761,8 @@ with tab2:
         if not horas_comuns:
             st.error("❌ Não há horas comuns entre os datasets")
         else:
+            st.success(f"✅ Horas disponíveis: {horas_comuns}")
+            
             # Filtrar dados pelas horas comuns
             df_todos_filtrado = dfs["TODOS"][dfs["TODOS"]['HORA'].isin(horas_comuns)].copy()
             df_trf_filtrado = dfs["TRF"][dfs["TRF"]['HORA'].isin(horas_comuns)].copy()
@@ -871,7 +871,7 @@ with tab2:
             ))
             
             fig.update_layout(
-                title='Faturamento por Hora - Todos os Canais',
+                title=f'Faturamento por Hora - Até {hora_final:02d}:00 (Horário Brasília)',
                 xaxis_title='Hora do Dia',
                 yaxis_title='Quantidade',
                 barmode='group',
@@ -880,13 +880,13 @@ with tab2:
                 xaxis = dict(
                     tickmode = 'linear',
                     tick0 = 0,
-                    dtick = 1  # Mostrar TODAS as horas (1 em 1)
+                    dtick = 1
                 )
             )
             
             st.plotly_chart(fig, use_container_width=True)
             
-            # GRÁFICO 2: VENDA LÍQUIDA (com base nos filtros)
+            # GRÁFICO 2: VENDA LÍQUIDA
             st.markdown('<p class="section-header">📈 VENDA LÍQUIDA (com filtros aplicados)</p>', unsafe_allow_html=True)
             
             fig = go.Figure()
@@ -911,7 +911,7 @@ with tab2:
                 xaxis = dict(
                     tickmode = 'linear',
                     tick0 = 0,
-                    dtick = 1  # Mostrar TODAS as horas
+                    dtick = 1
                 )
             )
             
@@ -980,7 +980,7 @@ with tab2:
             st.info(f"📊 Período analisado: 00:00 até {hora_final:02d}:00 (horário de Brasília)")
             
     else:
-        st.error("❌ Não foi possível processar dados de faturamento")
+        st.error("❌ Não foi possível processar dados de furamento")
 
 # ============================================================================
 # RODAPÉ COM HORÁRIO BRASILEIRO
