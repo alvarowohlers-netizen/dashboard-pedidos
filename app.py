@@ -8,7 +8,8 @@ import json
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+from pytz import timezone
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -22,11 +23,24 @@ st.set_page_config(
 )
 
 # ============================================================================
-# FUNÇÃO PARA OBTER HORÁRIO BRASILEIRO (UTC-3)
+# FUNÇÃO PARA OBTER HORÁRIO BRASILEIRO (UTC-3) - CORRIGIDA
 # ============================================================================
 def horario_brasil():
-    fuso_br = timezone(timedelta(hours=-3))
-    return datetime.now(timezone.utc).astimezone(fuso_br)
+    """
+    Retorna o datetime atual no horário de São Paulo/Brasil (UTC-3)
+    """
+    fuso_sp = timezone('America/Sao_Paulo')
+    return datetime.now(fuso_sp)
+
+# ============================================================================
+# FUNÇÃO PARA OBTER A HORA ATUAL NO BRASIL
+# ============================================================================
+def hora_atual_brasil():
+    """
+    Retorna apenas a hora atual no horário de Brasília
+    """
+    fuso_sp = timezone('America/Sao_Paulo')
+    return datetime.now(fuso_sp).hour
 
 # ============================================================================
 # FUNÇÃO PARA FORMATAR NÚMEROS NO PADRÃO BRASILEIRO
@@ -63,6 +77,11 @@ st.markdown("""
         display: inline-block;
         animation: marquee 20s linear infinite;
         padding-left: 100%;
+    }
+    
+    .marquee-header span:after {
+        content: " 📊 DASHBOARD DE PEDIDOS E FATURAMENTO - TV 📊 ";
+        margin-left: 50px;
     }
     
     .metric-card {
@@ -108,7 +127,7 @@ st.markdown("""
 # ============================================================================
 st.markdown("""
 <div class="marquee-header">
-    <span>📊 DASHBOARD DE PEDIDOS E FATURAMENTO - TV 📊 &nbsp;&nbsp;&nbsp; 📊 DASHBOARD DE PEDIDOS E FATURAMENTO - TV 📊 &nbsp;&nbsp;&nbsp; </span>
+    <span>📊 DASHBOARD DE PEDIDOS E FATURAMENTO - TV 📊</span>
 </div>
 """, unsafe_allow_html=True)
 
@@ -193,7 +212,7 @@ def consultar_api_pedidos():
 def consultar_api_faturamento(canal=None):
     """
     Função para consultar a API de faturamento
-    canal: None (todos), "TRF", "DIST", ou "VENDA" (exclui TRF e DIST)
+    canal: None (todos), "TRF", "DIST"
     """
     api_url = "https://api-dw.bseller.com.br/webquery/execute/ZBIQ0099"
     token = "5A9D7B5EAC2E7478E05324F3A8C0D448"
@@ -240,36 +259,37 @@ def ordenar_tipo_limite(tipos):
     return sorted(tipos, key=lambda x: ordem.get(x, 999))
 
 # ============================================================================
-# FUNÇÃO PARA COMPLETAR DADOS DE FATURAMENTO ATÉ HORA ATUAL (CORRIGIDA)
+# FUNÇÃO PARA PROCESSAR DADOS DE FATURAMENTO (CORRIGIDA COM FUSO BR)
 # ============================================================================
-def completar_dados_ate_hora_atual(df_existente, tipo, hora_atual):
+def processar_dados_faturamento(df, nome):
     """
-    Completa os dados até a hora atual se a API retornou dados incompletos
-    NUNCA cria dados para horas futuras
+    Processa dados de faturamento e garante hora no formato correto
     """
-    if df_existente is None or len(df_existente) == 0:
+    if df is None or len(df) == 0:
         return None
         
-    # Extrair hora máxima dos dados existentes
-    if 'HORA' in df_existente.columns:
-        hora_maxima_api = df_existente['HORA'].max()
-    else:
-        # Se não tem coluna HORA, tentar extrair do PERIODO
-        df_existente['HORA_EXTRAIDA'] = df_existente['PERIODO'].str.extract('(\d+)')
-        df_existente['HORA'] = pd.to_numeric(df_existente['HORA_EXTRAIDA'], errors='coerce')
-        df_existente = df_existente.dropna(subset=['HORA'])
-        df_existente['HORA'] = df_existente['HORA'].astype(int)
-        hora_maxima_api = df_existente['HORA'].max()
+    # Processar dados
+    colunas_numericas = ['FATURADOS', 'EXPEDIDOS', 'INCLUIDOS', 'APROVADOS']
+    for coluna in colunas_numericas:
+        if coluna in df.columns:
+            df[coluna] = pd.to_numeric(df[coluna], errors='coerce')
     
-    # 🔥 CORREÇÃO: NÃO CRIAR DADOS PARA HORAS FUTURAS
-    # Se a hora máxima da API já é maior ou igual à hora atual, só retornar até hora atual
-    if hora_maxima_api >= hora_atual:
-        df_existente = df_existente[df_existente['HORA'] <= hora_atual]
-        return df_existente
+    # Garantir coluna HORA
+    if 'HORA' not in df.columns:
+        df['HORA_EXTRAIDA'] = df['PERIODO'].str.extract('(\d+)')
+        df['HORA'] = pd.to_numeric(df['HORA_EXTRAIDA'], errors='coerce')
+        df = df.dropna(subset=['HORA'])
+        df['HORA'] = df['HORA'].astype(int)
     
-    # Se a API retornou dados até uma hora anterior à atual
-    # Retornar apenas os dados reais, sem completar
-    return df_existente[df_existente['HORA'] <= hora_atual]
+    df = df.sort_values('HORA')
+    
+    # Obter hora atual de Brasília
+    hora_atual_br = hora_atual_brasil()
+    
+    # Filtrar apenas horas até a hora atual de Brasília
+    df = df[df['HORA'] <= hora_atual_br]
+    
+    return df
 
 # ============================================================================
 # CRIAÇÃO DAS ABAS
@@ -679,13 +699,15 @@ with tab1:
         st.error("❌ Erro ao conectar com a API de pedidos")
 
 # ============================================================================
-# ABA 2: FATURAMENTO (COM FILTROS PARA TRF E DIST)
+# ABA 2: FATURAMENTO (COM FILTROS PARA TRF E DIST) - CORRIGIDA COM FUSO BR
 # ============================================================================
 with tab2:
     st.markdown('<p class="section-header">💰 FATURAMENTO (COM FILTRO DE CANAIS)</p>', unsafe_allow_html=True)
     
-    # Obter hora atual do sistema (LIMITAR A HORA ATUAL)
-    hora_atual = datetime.now().hour
+    # OBTER HORA ATUAL DE BRASÍLIA (CORREÇÃO CRÍTICA!)
+    hora_atual_br = hora_atual_brasil()
+    
+    st.info(f"🕒 Horário de Brasília: {hora_atual_br:02d}:00 - Exibindo dados até esta hora")
     
     with st.spinner("📡 Consultando APIs de faturamento..."):
         # Consultar APIs para cada canal
@@ -700,29 +722,11 @@ with tab2:
     for nome, resultado in [("TODOS", dados_todos), ("TRF", dados_trf), ("DIST", dados_dist)]:
         if resultado["sucesso"] and resultado["dados"]:
             df = pd.DataFrame(resultado["dados"])
-            
-            # Processar dados
-            colunas_numericas = ['FATURADOS', 'EXPEDIDOS', 'INCLUIDOS', 'APROVADOS']
-            for coluna in colunas_numericas:
-                if coluna in df.columns:
-                    df[coluna] = pd.to_numeric(df[coluna], errors='coerce')
-            
-            # Garantir coluna HORA
-            if 'HORA' not in df.columns:
-                df['HORA_EXTRAIDA'] = df['PERIODO'].str.extract('(\d+)')
-                df['HORA'] = pd.to_numeric(df['HORA_EXTRAIDA'], errors='coerce')
-                df = df.dropna(subset=['HORA'])
-                df['HORA'] = df['HORA'].astype(int)
-            
-            df = df.sort_values('HORA')
-            
-            # COMPLETAR E LIMITAR À HORA ATUAL (NÃO CRIA DADOS FUTUROS)
-            df = completar_dados_ate_hora_atual(df, nome, hora_atual)
-            dfs[nome] = df
+            dfs[nome] = processar_dados_faturamento(df, nome)
         else:
-            # Criar dados de exemplo apenas até hora atual
-            st.info(f"⚠️ API {nome} não disponível - usando dados de exemplo até {hora_atual}:00")
-            horas = [h for h in range(hora_atual + 1)]
+            # Criar dados de exemplo apenas até hora atual de Brasília
+            st.info(f"⚠️ API {nome} não disponível - usando dados de exemplo até {hora_atual_br}:00")
+            horas = [h for h in range(hora_atual_br + 1)]
             dados_exemplo = []
             for hora in horas:
                 base = 1000 if nome == "TODOS" else (200 if nome == "TRF" else 150)
@@ -973,7 +977,7 @@ with tab2:
             )
             
             st.markdown("---")
-            st.info(f"📊 Período analisado: 00:00 até {hora_final:02d}:00 (apenas dados reais, sem previsões)")
+            st.info(f"📊 Período analisado: 00:00 até {hora_final:02d}:00 (horário de Brasília)")
             
     else:
         st.error("❌ Não foi possível processar dados de faturamento")
