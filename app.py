@@ -240,11 +240,12 @@ def ordenar_tipo_limite(tipos):
     return sorted(tipos, key=lambda x: ordem.get(x, 999))
 
 # ============================================================================
-# FUNÇÃO PARA COMPLETAR DADOS DE FATURAMENTO ATÉ HORA ATUAL
+# FUNÇÃO PARA COMPLETAR DADOS DE FATURAMENTO ATÉ HORA ATUAL (CORRIGIDA)
 # ============================================================================
 def completar_dados_ate_hora_atual(df_existente, tipo, hora_atual):
     """
     Completa os dados até a hora atual se a API retornou dados incompletos
+    NUNCA cria dados para horas futuras
     """
     if df_existente is None or len(df_existente) == 0:
         return None
@@ -260,53 +261,15 @@ def completar_dados_ate_hora_atual(df_existente, tipo, hora_atual):
         df_existente['HORA'] = df_existente['HORA'].astype(int)
         hora_maxima_api = df_existente['HORA'].max()
     
-    # LIMITAR À HORA ATUAL (não pode mostrar futuro)
-    hora_maxima = min(hora_maxima_api, hora_atual)
-    
-    # Se a API já retornou dados até a hora atual, retornar apenas até hora atual
+    # 🔥 CORREÇÃO: NÃO CRIAR DADOS PARA HORAS FUTURAS
+    # Se a hora máxima da API já é maior ou igual à hora atual, só retornar até hora atual
     if hora_maxima_api >= hora_atual:
         df_existente = df_existente[df_existente['HORA'] <= hora_atual]
         return df_existente
     
-    # Se não, completar os dados faltantes (apenas até hora atual)
-    horas_faltantes = range(hora_maxima_api + 1, hora_atual + 1)
-    
-    dados_completos = []
-    
-    # Adicionar dados existentes (limitados à hora atual)
-    for _, row in df_existente.iterrows():
-        if row['HORA'] <= hora_atual:
-            dados_completos.append({
-                'FATURADOS': row['FATURADOS'],
-                'EXPEDIDOS': row['EXPEDIDOS'],
-                'INCLUIDOS': row['INCLUIDOS'],
-                'APROVADOS': row['APROVADOS'],
-                'PERIODO': row['PERIODO'],
-                'HORA': row['HORA']
-            })
-    
-    # Adicionar dados simulados para horas faltantes
-    for hora in horas_faltantes:
-        # Usar valores baseados na média dos últimos dados reais
-        ultimos_dados = df_existente.tail(3)  # Últimas 3 horas reais
-        
-        faturados_medio = ultimos_dados['FATURADOS'].mean() if not ultimos_dados.empty else 1000
-        expedidos_medio = ultimos_dados['EXPEDIDOS'].mean() if not ultimos_dados.empty else 400
-        incluidos_medio = ultimos_dados['INCLUIDOS'].mean() if not ultimos_dados.empty else 600
-        aprovados_medio = ultimos_dados['APROVADOS'].mean() if not ultimos_dados.empty else 500
-        
-        # Adicionar variação aleatória
-        dados_completos.append({
-            'FATURADOS': int(faturados_medio * np.random.uniform(0.8, 1.2)),
-            'EXPEDIDOS': int(expedidos_medio * np.random.uniform(0.7, 1.3)),
-            'INCLUIDOS': int(incluidos_medio * np.random.uniform(0.8, 1.2)),
-            'APROVADOS': int(aprovados_medio * np.random.uniform(0.8, 1.2)),
-            'PERIODO': f"{hora:02d}:00",
-            'HORA': hora
-        })
-    
-    df_completo = pd.DataFrame(dados_completos)
-    return df_completo
+    # Se a API retornou dados até uma hora anterior à atual
+    # Retornar apenas os dados reais, sem completar
+    return df_existente[df_existente['HORA'] <= hora_atual]
 
 # ============================================================================
 # CRIAÇÃO DAS ABAS
@@ -753,14 +716,12 @@ with tab2:
             
             df = df.sort_values('HORA')
             
-            # COMPLETAR E LIMITAR À HORA ATUAL
+            # COMPLETAR E LIMITAR À HORA ATUAL (NÃO CRIA DADOS FUTUROS)
             df = completar_dados_ate_hora_atual(df, nome, hora_atual)
-            if df is not None:
-                df = df[df['HORA'] <= hora_atual]
-                dfs[nome] = df
+            dfs[nome] = df
         else:
-            # Criar dados de exemplo
-            st.info(f"⚠️ API {nome} não disponível - usando dados de exemplo")
+            # Criar dados de exemplo apenas até hora atual
+            st.info(f"⚠️ API {nome} não disponível - usando dados de exemplo até {hora_atual}:00")
             horas = [h for h in range(hora_atual + 1)]
             dados_exemplo = []
             for hora in horas:
@@ -1012,7 +973,7 @@ with tab2:
             )
             
             st.markdown("---")
-            st.info(f"📊 Período analisado: 00:00 até {hora_final:02d}:00 (limitado à hora atual)")
+            st.info(f"📊 Período analisado: 00:00 até {hora_final:02d}:00 (apenas dados reais, sem previsões)")
             
     else:
         st.error("❌ Não foi possível processar dados de faturamento")
