@@ -256,15 +256,13 @@ def ordenar_tipo_limite(tipos):
     return sorted(tipos, key=lambda x: ordem.get(x, 999))
 
 # ============================================================================
-# FUNÇÃO PARA PROCESSAR DADOS DE FATURAMENTO (CORRIGIDA)
+# FUNÇÃO PARA PROCESSAR DADOS DE FATURAMENTO
 # ============================================================================
 def processar_dados_faturamento(df, nome):
     """
     Processa dados de faturamento e filtra pela hora atual de Brasília
-    Versão corrigida com tratamento de erros
     """
     if df is None or len(df) == 0:
-        st.warning(f"⚠️ {nome}: DataFrame vazio")
         return None
     
     try:
@@ -276,10 +274,9 @@ def processar_dados_faturamento(df, nome):
         
         # Verificar se PERIODO existe
         if 'PERIODO' not in df.columns:
-            st.error(f"❌ {nome}: Coluna PERIODO não encontrada")
             return None
         
-        # Extrair HORA do PERIODO (formato "HH:00") - VERSÃO CORRIGIDA
+        # Extrair HORA do PERIODO
         df['HORA_STR'] = df['PERIODO'].astype(str).str.extract(r'(\d{2})')[0]
         df['HORA'] = pd.to_numeric(df['HORA_STR'], errors='coerce')
         
@@ -288,7 +285,6 @@ def processar_dados_faturamento(df, nome):
         df['HORA'] = df['HORA'].astype(int)
         
         if len(df) == 0:
-            st.warning(f"⚠️ {nome}: Nenhuma hora válida encontrada")
             return None
         
         # OBTER HORA ATUAL DE BRASÍLIA
@@ -297,14 +293,9 @@ def processar_dados_faturamento(df, nome):
         # FILTRO: Manter apenas horas até a hora atual de Brasília
         df_filtrado = df[df['HORA'] <= hora_atual_br].copy()
         
-        st.sidebar.write(f"🔍 {nome}: Horas disponíveis: {sorted(df['HORA'].unique())}")
-        st.sidebar.write(f"🔍 {nome}: Hora atual Brasília: {hora_atual_br}")
-        st.sidebar.write(f"🔍 {nome}: Registros após filtro: {len(df_filtrado)}")
-        
         return df_filtrado.sort_values('HORA')
         
     except Exception as e:
-        st.error(f"❌ Erro processando {nome}: {str(e)}")
         return None
 
 # ============================================================================
@@ -316,14 +307,12 @@ tab1, tab2 = st.tabs(["📦 PEDIDOS ABERTOS", "💰 FATURAMENTO"])
 # ABA 1: PEDIDOS ABERTOS
 # ============================================================================
 with tab1:
-    # Consultar API de pedidos
     with st.spinner("📡 Buscando dados de pedidos..."):
         resultado_pedidos = consultar_api_pedidos()
 
     if resultado_pedidos["sucesso"] and resultado_pedidos["dados"]:
         df = pd.DataFrame(resultado_pedidos["dados"])
         
-        # Processar dados
         df_renamed = df.rename(columns={
             'TIPO_ITEM': 'TIPO_ITEM',
             'TIPO_LIMITE': 'TIPO_LIMITE',
@@ -335,7 +324,6 @@ with tab1:
         df_renamed['COUNT_ENTREGA'] = pd.to_numeric(df_renamed['COUNT_ENTREGA'], errors='coerce').fillna(1)
         df_renamed['QT_PECAS'] = pd.to_numeric(df_renamed['QT_PECAS'], errors='coerce').fillna(0)
         
-        # Filtrar canais
         if 'CANAL' in df_renamed.columns:
             canais_excluir = ['TRF', 'DIST']
             df_renamed = df_renamed[~df_renamed['CANAL'].isin(canais_excluir)]
@@ -343,10 +331,8 @@ with tab1:
         df_renamed['TIPO_PEDIDO'] = df_renamed['STATUS'].map(CLASSIFICACAO_STATUS)
         df_renamed['TIPO_PEDIDO'] = df_renamed['TIPO_PEDIDO'].fillna('OUTROS')
         
-        # Filtrar apenas ABERTOS
         df_abertos = df_renamed[df_renamed['TIPO_PEDIDO'] == 'ABERTOS'].copy()
         
-        # Métricas
         st.markdown("---")
         
         col1, col2, col3, col4 = st.columns(4)
@@ -389,23 +375,19 @@ with tab1:
         
         if len(df_abertos) > 0:
             
-            # GRÁFICO 1.A - PEDIDOS POR TIPO DE LIMITE
             st.markdown('<p class="section-header">📊 GRÁFICO 1.A - PEDIDOS POR TIPO DE LIMITE (BARRAS EMPILHADAS)</p>', unsafe_allow_html=True)
             
-            # Preparar dados com ordenação correta
             df_abertos['TIPO_LIMITE'] = pd.Categorical(
                 df_abertos['TIPO_LIMITE'], 
                 categories=ordenar_tipo_limite(df_abertos['TIPO_LIMITE'].unique()),
                 ordered=True
             )
             
-            # Tabela pivot para contagem de pedidos
             pivot_count = pd.crosstab(
                 df_abertos['TIPO_LIMITE'],
                 df_abertos['TIPO_ITEM']
             ).fillna(0).reset_index()
             
-            # Criar gráfico interativo
             fig = go.Figure()
             
             for item in pivot_count.columns[1:]:
@@ -441,10 +423,8 @@ with tab1:
             
             st.plotly_chart(fig, use_container_width=True)
             
-            # GRÁFICO 1.B - PEÇAS POR TIPO DE LIMITE
             st.markdown('<p class="section-header">📊 GRÁFICO 1.B - PEÇAS POR TIPO DE LIMITE (COM LINHA DE MÉDIA PEÇAS/PEDIDO)</p>', unsafe_allow_html=True)
             
-            # Tabela pivot para quantidade de peças
             pivot_pecas = pd.crosstab(
                 df_abertos['TIPO_LIMITE'],
                 df_abertos['TIPO_ITEM'],
@@ -452,11 +432,9 @@ with tab1:
                 aggfunc='sum'
             ).fillna(0).reset_index()
             
-            # Calcular totais de pedidos e peças por tipo_limite
             totais_pedidos_limite = df_abertos.groupby('TIPO_LIMITE').size()
             totais_pecas_limite = df_abertos.groupby('TIPO_LIMITE')['QT_PECAS'].sum()
             
-            # Calcular média de peças por pedido
             medias = []
             for tipo in pivot_pecas['TIPO_LIMITE']:
                 if tipo in totais_pedidos_limite.index and totais_pedidos_limite[tipo] > 0:
@@ -465,10 +443,8 @@ with tab1:
                 else:
                     medias.append(0)
             
-            # Criar figura com dois eixos y
             fig = make_subplots(specs=[[{"secondary_y": True}]])
             
-            # Adicionar barras empilhadas
             for item in pivot_pecas.columns[1:]:
                 fig.add_trace(
                     go.Bar(
@@ -485,7 +461,6 @@ with tab1:
                     secondary_y=False
                 )
             
-            # Adicionar linha de média
             fig.add_trace(
                 go.Scatter(
                     name='Média Peças/Pedido',
@@ -504,7 +479,6 @@ with tab1:
                 secondary_y=True
             )
             
-            # Configurar layout
             fig.update_layout(
                 title='Quantidade de Peças por Tipo com Média Peças/Pedido',
                 hovermode='x unified',
@@ -527,7 +501,6 @@ with tab1:
             
             st.markdown("---")
             
-            # GRÁFICO 2.A - TOP 10 STATUS
             st.markdown('<p class="section-header">🏆 GRÁFICO 2.A - TOP 10 STATUS (MAIS FREQUENTES)</p>', unsafe_allow_html=True)
             
             status_count = df_abertos['STATUS'].value_counts().head(10).reset_index()
@@ -553,7 +526,6 @@ with tab1:
             
             st.plotly_chart(fig, use_container_width=True)
             
-            # GRÁFICO 2.B - TOP 10 MÉDIA DE PEÇAS POR STATUS
             st.markdown('<p class="section-header">🏆 GRÁFICO 2.B - TOP 10 MÉDIA DE PEÇAS POR STATUS</p>', unsafe_allow_html=True)
             
             status_media = df_abertos.groupby('STATUS')['QT_PECAS'].mean().sort_values(ascending=False).head(10).reset_index()
@@ -581,7 +553,6 @@ with tab1:
             
             st.markdown("---")
             
-            # GRÁFICO 3.A e 3.B - Distribuição
             col1, col2 = st.columns(2)
             
             with col1:
@@ -628,7 +599,6 @@ with tab1:
             
             st.markdown("---")
             
-            # GRÁFICO 4.A e 4.B - Por Tipo Limite
             col1, col2 = st.columns(2)
             
             with col1:
@@ -673,10 +643,8 @@ with tab1:
             
             st.markdown("---")
             
-            # TABELA
             st.markdown('<p class="section-header">📋 TABELA - DADOS DETALHADOS</p>', unsafe_allow_html=True)
             
-            # Filtros
             col1, col2, col3 = st.columns(3)
             with col1:
                 tipos_limite = ['Todos'] + ordenar_tipo_limite(df_abertos['TIPO_LIMITE'].unique().tolist())
@@ -698,7 +666,6 @@ with tab1:
             
             st.dataframe(df_filtrado, use_container_width=True, height=400)
             
-            # Download
             csv = df_filtrado.to_csv(index=False)
             st.download_button(
                 label="📥 Download CSV",
@@ -715,14 +682,12 @@ with tab1:
         st.error("❌ Erro ao conectar com a API de pedidos")
 
 # ============================================================================
-# ABA 2: FATURAMENTO (VERSÃO CORRIGIDA)
+# ABA 2: FATURAMENTO (COM GRÁFICOS DE ACUMULADO)
 # ============================================================================
 with tab2:
     st.markdown('<p class="section-header">💰 FATURAMENTO (COM FILTRO DE CANAIS)</p>', unsafe_allow_html=True)
     
-    # OBTER HORA ATUAL DE BRASÍLIA
     hora_atual_br = hora_atual_brasil()
-    
     st.success(f"🕒 HORA ATUAL DE BRASÍLIA: {hora_atual_br:02d}:00")
     
     with st.spinner("📡 Consultando APIs de faturamento..."):
@@ -732,7 +697,6 @@ with tab2:
     
     dfs = {}
     
-    # Processar cada canal
     for nome, resultado in [("TODOS", dados_todos), ("TRF", dados_trf), ("DIST", dados_dist)]:
         if resultado["sucesso"] and resultado["dados"]:
             df = pd.DataFrame(resultado["dados"])
@@ -740,7 +704,6 @@ with tab2:
         else:
             st.warning(f"⚠️ API {nome} não disponível")
     
-    # Verificar se temos dados
     if dfs.get("TODOS") is not None and not dfs["TODOS"].empty:
         
         st.markdown("### 🔍 FILTROS")
@@ -751,27 +714,29 @@ with tab2:
         with col2:
             incluir_dist = st.checkbox("Incluir DISTRIBUIÇÃO (DIST)", value=True)
         
-        # Preparar dados base
         df_base = dfs["TODOS"].copy()
         df_base = df_base.rename(columns={'FATURADOS': 'TODOS'})
         
-        # Adicionar TRF se disponível e selecionado
+        # Adicionar TRF
         if incluir_trf and dfs.get("TRF") is not None and not dfs["TRF"].empty:
             df_trf = dfs["TRF"][['HORA', 'FATURADOS']].rename(columns={'FATURADOS': 'TRF'})
             df_base = df_base.merge(df_trf, on='HORA', how='left').fillna(0)
         else:
             df_base['TRF'] = 0
         
-        # Adicionar DIST se disponível e selecionado
+        # Adicionar DIST
         if incluir_dist and dfs.get("DIST") is not None and not dfs["DIST"].empty:
             df_dist = dfs["DIST"][['HORA', 'FATURADOS']].rename(columns={'FATURADOS': 'DIST'})
             df_base = df_base.merge(df_dist, on='HORA', how='left').fillna(0)
         else:
             df_base['DIST'] = 0
         
-        # Calcular vendas
+        # Calcular vendas e acumulados
         df_base['VENDA'] = df_base['TODOS'] - df_base['TRF'] - df_base['DIST']
-        df_base['ACUMULADO'] = df_base['VENDA'].cumsum()
+        df_base['ACUM_VENDA'] = df_base['VENDA'].cumsum()
+        df_base['ACUM_TRF'] = df_base['TRF'].cumsum()
+        df_base['ACUM_DIST'] = df_base['DIST'].cumsum()
+        df_base['ACUM_TODOS'] = df_base['TODOS'].cumsum()
         
         # Métricas
         st.markdown("### 📊 MÉTRICAS")
@@ -786,37 +751,183 @@ with tab2:
         with col4:
             st.metric("💵 VENDA DO DIA", formatar_br(df_base['VENDA'].sum()))
         
-        # Gráfico de barras
-        st.markdown("### 📊 FATURAMENTO POR HORA")
-        fig = go.Figure()
+        st.markdown("---")
         
-        fig.add_trace(go.Bar(name='TODOS', x=df_base['HORA'], y=df_base['TODOS'], 
-                            marker_color='blue', text=df_base['TODOS'].apply(formatar_br)))
+        # ============================================================================
+        # GRÁFICO 1: COMPARATIVO POR HORA
+        # ============================================================================
+        st.markdown('<p class="section-header">📊 COMPARATIVO POR HORA - TODOS OS CANAIS</p>', unsafe_allow_html=True)
+        
+        fig1 = go.Figure()
+        
+        fig1.add_trace(go.Bar(
+            name='TODOS', x=df_base['HORA'], y=df_base['TODOS'],
+            marker_color='blue', text=df_base['TODOS'].apply(formatar_br),
+            textposition='inside'
+        ))
         
         if incluir_trf:
-            fig.add_trace(go.Bar(name='TRF', x=df_base['HORA'], y=df_base['TRF'], 
-                                marker_color='red', text=df_base['TRF'].apply(formatar_br)))
+            fig1.add_trace(go.Bar(
+                name='TRF', x=df_base['HORA'], y=df_base['TRF'],
+                marker_color='red', text=df_base['TRF'].apply(formatar_br),
+                textposition='inside'
+            ))
         
         if incluir_dist:
-            fig.add_trace(go.Bar(name='DIST', x=df_base['HORA'], y=df_base['DIST'], 
-                                marker_color='orange', text=df_base['DIST'].apply(formatar_br)))
+            fig1.add_trace(go.Bar(
+                name='DIST', x=df_base['HORA'], y=df_base['DIST'],
+                marker_color='orange', text=df_base['DIST'].apply(formatar_br),
+                textposition='inside'
+            ))
         
-        fig.add_trace(go.Bar(name='VENDA', x=df_base['HORA'], y=df_base['VENDA'], 
-                            marker_color='green', text=df_base['VENDA'].apply(formatar_br)))
+        fig1.add_trace(go.Bar(
+            name='VENDA', x=df_base['HORA'], y=df_base['VENDA'],
+            marker_color='green', text=df_base['VENDA'].apply(formatar_br),
+            textposition='inside'
+        ))
         
-        fig.update_layout(barmode='group', height=500, template='plotly_white',
-                         xaxis=dict(tickmode='linear', tick0=0, dtick=1))
+        fig1.update_layout(
+            title=f'Faturamento por Hora - Até {df_base["HORA"].max():02d}:00',
+            xaxis_title='Hora do Dia',
+            yaxis_title='Quantidade',
+            barmode='group',
+            height=500,
+            template='plotly_white',
+            xaxis=dict(tickmode='linear', tick0=0, dtick=1)
+        )
         
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig1, use_container_width=True)
         
-        # Tabela
-        st.markdown("### 📋 DADOS")
+        # ============================================================================
+        # GRÁFICO 2: VENDA LÍQUIDA
+        # ============================================================================
+        st.markdown('<p class="section-header">📈 VENDA LÍQUIDA POR HORA</p>', unsafe_allow_html=True)
+        
+        fig2 = go.Figure()
+        
+        cores = ['green' if x >= 0 else 'red' for x in df_base['VENDA']]
+        
+        fig2.add_trace(go.Bar(
+            x=df_base['HORA'],
+            y=df_base['VENDA'],
+            marker_color=cores,
+            text=df_base['VENDA'].apply(formatar_br),
+            textposition='outside',
+            hovertemplate='Hora: %{x}:00<br>Venda Líquida: %{y:,.0f}'.replace(",", ".") + '<extra></extra>'
+        ))
+        
+        fig2.update_layout(
+            title='Venda Líquida por Hora',
+            xaxis_title='Hora do Dia',
+            yaxis_title='Quantidade',
+            height=400,
+            template='plotly_white',
+            xaxis=dict(tickmode='linear', tick0=0, dtick=1)
+        )
+        
+        st.plotly_chart(fig2, use_container_width=True)
+        
+        # ============================================================================
+        # GRÁFICO 3: ACUMULADOS (TODOS OS CANAIS)
+        # ============================================================================
+        st.markdown('<p class="section-header">📈 ACUMULADO POR CANAL</p>', unsafe_allow_html=True)
+        
+        fig3 = go.Figure()
+        
+        fig3.add_trace(go.Scatter(
+            name='TODOS (Acumulado)',
+            x=df_base['HORA'],
+            y=df_base['ACUM_TODOS'],
+            mode='lines+markers+text',
+            line=dict(color='blue', width=3),
+            marker=dict(size=8),
+            text=df_base['ACUM_TODOS'].apply(formatar_br),
+            textposition='top center',
+            hovertemplate='Hora: %{x}:00<br>Acumulado TODOS: %{y:,.0f}'.replace(",", ".") + '<extra></extra>'
+        ))
+        
+        if incluir_trf:
+            fig3.add_trace(go.Scatter(
+                name='TRF (Acumulado)',
+                x=df_base['HORA'],
+                y=df_base['ACUM_TRF'],
+                mode='lines+markers+text',
+                line=dict(color='red', width=3),
+                marker=dict(size=8),
+                text=df_base['ACUM_TRF'].apply(formatar_br),
+                textposition='top center',
+                hovertemplate='Hora: %{x}:00<br>Acumulado TRF: %{y:,.0f}'.replace(",", ".") + '<extra></extra>'
+            ))
+        
+        if incluir_dist:
+            fig3.add_trace(go.Scatter(
+                name='DIST (Acumulado)',
+                x=df_base['HORA'],
+                y=df_base['ACUM_DIST'],
+                mode='lines+markers+text',
+                line=dict(color='orange', width=3),
+                marker=dict(size=8),
+                text=df_base['ACUM_DIST'].apply(formatar_br),
+                textposition='top center',
+                hovertemplate='Hora: %{x}:00<br>Acumulado DIST: %{y:,.0f}'.replace(",", ".") + '<extra></extra>'
+            ))
+        
+        fig3.add_trace(go.Scatter(
+            name='VENDA (Acumulado)',
+            x=df_base['HORA'],
+            y=df_base['ACUM_VENDA'],
+            mode='lines+markers+text',
+            line=dict(color='green', width=4),
+            marker=dict(size=10, color='green'),
+            text=df_base['ACUM_VENDA'].apply(formatar_br),
+            textposition='top center',
+            hovertemplate='Hora: %{x}:00<br>Acumulado VENDA: %{y:,.0f}'.replace(",", ".") + '<extra></extra>'
+        ))
+        
+        fig3.update_layout(
+            title='Acumulado por Canal',
+            xaxis_title='Hora do Dia',
+            yaxis_title='Quantidade Acumulada',
+            height=500,
+            template='plotly_white',
+            xaxis=dict(tickmode='linear', tick0=0, dtick=1),
+            hovermode='x unified'
+        )
+        
+        st.plotly_chart(fig3, use_container_width=True)
+        
+        # ============================================================================
+        # TABELA DE DADOS
+        # ============================================================================
+        st.markdown('<p class="section-header">📋 DADOS DE FATURAMENTO</p>', unsafe_allow_html=True)
+        
         df_display = df_base.copy()
-        for col in ['TODOS', 'TRF', 'DIST', 'VENDA', 'ACUMULADO']:
-            df_display[col] = df_display[col].apply(formatar_br)
+        for col in ['TODOS', 'TRF', 'DIST', 'VENDA', 'ACUM_TODOS', 'ACUM_TRF', 'ACUM_DIST', 'ACUM_VENDA']:
+            if col in df_display.columns:
+                df_display[col] = df_display[col].apply(formatar_br)
         
-        st.dataframe(df_display[['HORA', 'TODOS', 'TRF', 'DIST', 'VENDA', 'ACUMULADO']], 
-                    use_container_width=True, height=400)
+        colunas_exibir = ['HORA', 'TODOS']
+        if incluir_trf:
+            colunas_exibir.append('TRF')
+        if incluir_dist:
+            colunas_exibir.append('DIST')
+        colunas_exibir.extend(['VENDA', 'ACUM_TODOS'])
+        if incluir_trf:
+            colunas_exibir.append('ACUM_TRF')
+        if incluir_dist:
+            colunas_exibir.append('ACUM_DIST')
+        colunas_exibir.append('ACUM_VENDA')
+        
+        st.dataframe(df_display[colunas_exibir], use_container_width=True, height=400)
+        
+        csv = df_base.to_csv(index=False)
+        st.download_button(
+            label="📥 Download Dados de Faturamento",
+            data=csv,
+            file_name=f"faturamento_{hora_br.strftime('%Y%m%d_%H%M')}.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
         
         st.info(f"📊 Período: 00:00 até {df_base['HORA'].max():02d}:00")
     
